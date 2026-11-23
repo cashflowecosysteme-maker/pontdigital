@@ -1,6 +1,7 @@
 // ============================================================================
 // PONT DIGITAL — SUPER ADMIN WORKER UNIFIÉ (CLOUDFLARE WORKERS + D1)
-// Disposition : KPI + Modale complète + /images/FavIcon.png + /images/NyXia.png
+// Visuel      : Disposition pleine largeur empilée du Worker 2
+//               + /images/FavIcon.png (onglet) + /images/NyXia.png (avatar)
 //               + /css/index.css + /js/starry-bg.js
 // Moteur D1   : Schéma exact Worker 1 (Webhook Heyzine, Invitations GCal,
 //               Multi-fiches Agence GBP, Posts Multi-Formats, Réponses 1-clic)
@@ -123,7 +124,7 @@ export default {
         return handleDeleteClient(request, env);
       }
 
-      // 12. Chargement des données et affichage du Tableau de Bord
+      // 12. Chargement des données et affichage du Tableau de Bord (Visuel Worker 2)
       const { results: clients } = await env.DB.prepare(`
         SELECT c.*,
                (SELECT COUNT(*) FROM google_reviews r WHERE r.client_id = c.id) AS review_count,
@@ -139,7 +140,7 @@ export default {
         FROM google_reviews r
         JOIN clients c ON c.id = r.client_id
         ORDER BY r.review_updated_at DESC
-        LIMIT 12
+        LIMIT 25
       `).all();
 
       const { results: recentLeads } = await env.DB.prepare(`
@@ -147,7 +148,7 @@ export default {
         FROM heyzine_leads l
         LEFT JOIN clients c ON c.id = l.client_id
         ORDER BY l.created_at DESC
-        LIMIT 12
+        LIMIT 25
       `).all();
 
       const { results: recentAppointments } = await env.DB.prepare(`
@@ -155,7 +156,7 @@ export default {
         FROM appointments a
         JOIN clients c ON c.id = a.client_id
         ORDER BY a.created_at DESC
-        LIMIT 12
+        LIMIT 25
       `).all();
 
       return new Response(
@@ -1524,7 +1525,7 @@ function escapeHtml(str) {
 }
 
 // ============================================================================
-// HEAD & ASSETS PARTAGÉS (/images/FavIcon.png, /css/index.css, /js/starry-bg.js)
+// HEAD & ASSETS PARTAGÉS (DISPOSITION VISUELLE PLEINE LARGEUR DU WORKER 2)
 // ============================================================================
 
 function renderSharedHead(title) {
@@ -1549,7 +1550,7 @@ function renderSharedHead(title) {
       --transition:.3s cubic-bezier(.4,0,.2,1);
     }
     *,*::before,*::after { margin:0; padding:0; box-sizing:border-box; }
-    body { font-family:'Outfit',system-ui,sans-serif; background:var(--bg-deep); color:var(--text); line-height:1.6; min-height:100vh; overflow-x:hidden; }
+    body { font-family:'Outfit',-apple-system,BlinkMacSystemFont,sans-serif; background:var(--bg-deep); color:var(--text); line-height:1.6; min-height:100vh; overflow-x:hidden; }
     a { color:var(--primary-light); text-decoration:none; }
     button { cursor:pointer; font-family:inherit; border:none; outline:none; color:inherit; }
     .display { font-family:'Cormorant Garamond',Georgia,serif; font-weight:700; letter-spacing:.3px; }
@@ -1561,79 +1562,65 @@ function renderSharedHead(title) {
         radial-gradient(50% 40% at 10% 24%,rgba(79,163,255,.12),transparent 60%),
         radial-gradient(70% 50% at 50% 112%,rgba(244,200,66,.06),transparent 60%);
     }
-    .app-layer { position:relative; z-index:1; }
     .site-header {
       position:sticky; top:0; z-index:20; display:flex; align-items:center; justify-content:space-between; gap:16px;
-      padding:14px clamp(16px,4vw,34px); border-bottom:1px solid rgba(123,92,255,.18);
-      backdrop-filter:blur(14px); -webkit-backdrop-filter:blur(14px); background:rgba(6,10,24,.76); flex-wrap:wrap;
+      padding:14px clamp(16px,4vw,34px); border-bottom:1px solid rgba(123,92,255,.14);
+      backdrop-filter:blur(14px); -webkit-backdrop-filter:blur(14px); background:rgba(6,10,24,.72);
     }
     .brand { display:flex; align-items:center; gap:12px; color:#fff; font-weight:600; }
-    .brand img { width:44px; height:44px; border-radius:50%; object-fit:cover; object-position:top; border:2px solid rgba(244,200,66,.55); box-shadow:0 0 22px rgba(123,92,255,.45); }
-    .brand-name { display:flex; flex-direction:column; line-height:1.15; }
-    .brand-name b { font-family:'Cormorant Garamond',Georgia,serif; font-size:1.35rem; color:var(--gold); letter-spacing:.03em; }
+    .brand img { width:44px; height:44px; border-radius:50%; object-fit:cover; object-position:top; border:2px solid rgba(123,92,255,.55); box-shadow:0 0 22px rgba(123,92,255,.45); }
+    .brand-name { display:flex; flex-direction:column; line-height:1.1; }
+    .brand-name b { font-size:1.05rem; font-weight:700; }
     .brand-name span { font-size:.72rem; color:var(--text-muted); letter-spacing:.5px; text-transform:uppercase; }
     .header-right { display:flex; align-items:center; gap:12px; flex-wrap:wrap; }
-    .webhook-pill { background:rgba(14,20,48,.85); border:1px solid rgba(123,92,255,.35); padding:6px 13px; border-radius:50px; font-size:.76rem; color:#C4B5FD; }
     .btn-primary {
-      padding:10px 20px; border-radius:var(--radius-sm);
+      padding:10px 22px; border-radius:var(--radius-sm);
       background:linear-gradient(135deg,var(--primary),var(--secondary));
-      color:#fff; font-size:.86rem; font-weight:600; white-space:nowrap;
+      color:#fff; font-size:.875rem; font-weight:600; white-space:nowrap;
       box-shadow:0 4px 16px var(--primary-glow); transition:transform var(--transition),box-shadow var(--transition);
     }
     .btn-primary:hover { transform:translateY(-1px); box-shadow:0 6px 26px var(--primary-glow); color:#fff; }
-    .btn-gold {
-      padding:10px 20px; border-radius:var(--radius-sm);
-      background:linear-gradient(135deg,#F4C842,#C9A24A);
-      color:#060a18; font-size:.86rem; font-weight:700; white-space:nowrap;
-    }
     .btn-ghost {
-      padding:9px 16px; border-radius:var(--radius-sm); white-space:nowrap;
+      padding:10px 22px; border-radius:var(--radius-sm); white-space:nowrap;
       background:rgba(123,92,255,.12); border:1px solid var(--border);
-      color:var(--text); font-size:.84rem; font-weight:600; transition:all var(--transition);
+      color:var(--text); font-size:.875rem; font-weight:600; transition:all var(--transition);
     }
     .btn-ghost:hover { border-color:var(--primary); background:rgba(123,92,255,.22); color:#fff; }
-    .admin-wrap { max-width: 1380px; margin: 0 auto; padding: 26px clamp(16px, 3vw, 32px) 64px; display:grid; gap:22px; }
-    .kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 16px; }
-    .kpi-box { background: linear-gradient(145deg, rgba(14, 20, 48, 0.88), rgba(20, 27, 61, 0.6)); border: 1px solid var(--border); border-radius: var(--radius); padding: 18px 20px; backdrop-filter:blur(12px); }
-    .kpi-label { font-size: .76rem; text-transform: uppercase; letter-spacing: .8px; color: var(--text-muted); }
+    .admin-wrap { position: relative; z-index: 1; max-width: 1360px; margin: 0 auto; padding: 28px clamp(16px, 3vw, 32px) 64px; }
+    .admin-card { background: rgba(14, 20, 48, 0.78); border: 1px solid var(--border); border-radius: var(--radius); padding: 24px; backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); box-shadow: var(--shadow-glow); margin-bottom: 24px; }
+    .kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 16px; margin-bottom: 24px; }
+    .kpi-box { background: linear-gradient(145deg, rgba(14, 20, 48, 0.9), rgba(20, 27, 61, 0.6)); border: 1px solid var(--border); border-radius: var(--radius); padding: 20px; }
+    .kpi-label { font-size: .78rem; text-transform: uppercase; letter-spacing: .8px; color: var(--text-muted); }
     .kpi-val { font-family: 'Cormorant Garamond', serif; font-size: 2.3rem; font-weight: 700; color: var(--gold); line-height: 1.1; margin-top: 6px; }
-    .grid-3 { display:grid; grid-template-columns: 1fr 1.1fr 1fr; gap:20px; }
-    .grid-2 { display:grid; grid-template-columns: 1fr 1fr; gap:20px; }
-    @media(max-width:1100px){ .grid-3, .grid-2 { grid-template-columns:1fr; } }
-    .panel { background:rgba(14,20,48,0.78); backdrop-filter:blur(14px); -webkit-backdrop-filter:blur(14px); border:1px solid var(--border); border-radius:var(--radius); padding:22px; overflow-x:auto; box-shadow:var(--shadow-glow); }
-    .panel h2 { font-family:'Cormorant Garamond',Georgia,serif; font-size:1.55rem; color:var(--gold); letter-spacing:.02em; margin-bottom:14px; }
-    input, select, textarea {
-      width:100%; padding:10px 13px; border-radius:var(--radius-sm);
-      border:1px solid rgba(123,92,255,0.28); background:rgba(6,10,24,0.85);
-      color:var(--text); margin-bottom:10px; font-family:inherit; font-size:.87rem;
+    .field-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; }
+    .field label { display: block; font-size: .78rem; color: var(--text-secondary); margin-bottom: 5px; font-weight: 500; }
+    .field input, .field select, .field textarea {
+      width: 100%; padding: 10px 13px; border-radius: var(--radius-sm);
+      background: rgba(6, 10, 24, 0.85); border: 1px solid var(--border);
+      color: var(--text); font-family: inherit; font-size: .9rem;
     }
-    input:focus, select:focus, textarea:focus { outline:none; border-color:var(--gold); box-shadow:0 0 0 3px rgba(244,200,66,.15); }
-    button.draft-btn { background:rgba(244,200,66,0.14); border:1px solid rgba(244,200,66,0.45); color:var(--gold); width:100%; margin-bottom:10px; padding:10px; border-radius:var(--radius-sm); font-size:.85rem; font-weight:600; }
-    button.draft-btn:hover { background:var(--gold); color:#060A18; }
-    button.sync-btn { background:rgba(52,211,153,0.14); border:1px solid rgba(52,211,153,0.4); color:var(--green); padding:6px 11px; border-radius:8px; font-size:.76rem; font-weight:600; }
-    button.sync-btn:hover { background:var(--green); color:#060A18; }
-    button.copy-wh-btn { background:rgba(123,92,255,0.16); border:1px solid rgba(123,92,255,0.45); color:#C4B5FD; padding:6px 11px; border-radius:8px; font-size:.76rem; font-weight:600; }
-    button.nyxia-reply-btn { background:linear-gradient(135deg, #7B5CFF, #5B3FD9); color:#fff; padding:8px 14px; border-radius:9px; font-size:.8rem; font-weight:600; width:100%; }
-    button.del-btn { background:rgba(239,68,68,0.12); border:1px solid rgba(239,68,68,0.35); color:#FCA5A5; padding:6px 11px; border-radius:8px; font-size:.76rem; }
-    table { width:100%; border-collapse:collapse; font-size:.87rem; }
-    th, td { text-align:left; padding:12px; border-bottom:1px solid rgba(123,92,255,0.14); vertical-align:top; }
-    th { color:var(--gold); font-size:.75rem; text-transform:uppercase; letter-spacing:.6px; font-weight:600; }
-    .badge { background:#1E293B; padding:4px 11px; border-radius:99px; font-size:.75rem; color:var(--gold); display:inline-block; font-weight:600; }
-    .badge.connected { background:rgba(52,211,153,0.14); border:1px solid rgba(52,211,153,0.4); color:var(--green); }
-    .cal-badge { display:inline-block; margin-top:6px; background:rgba(244,200,66,0.14); border:1px solid rgba(244,200,66,0.45); color:var(--gold); padding:4px 10px; border-radius:7px; font-size:.76rem; font-weight:600; }
-    .cal-badge:hover { background:var(--gold); color:#060A18; }
-    .gcal-btn { display:inline-block; background:linear-gradient(135deg,#F4C842,#C9A24A); color:#060A18; padding:7px 13px; border-radius:8px; font-size:.78rem; font-weight:700; }
-    .oauth-btn { display:inline-block; background:rgba(123,92,255,0.16); border:1px solid #7B5CFF; color:#C4B5FD; padding:6px 12px; border-radius:8px; font-size:.8rem; font-weight:600; }
-    .oauth-btn:hover { background:#7B5CFF; color:#fff; }
-    .oauth-link { color:var(--text-secondary); font-size:.76rem; text-decoration:underline; }
-    .alert { background:rgba(123,92,255,0.22); border:1px solid var(--gold); padding:13px 18px; border-radius:12px; color:#fff; font-size:.9rem; }
-    .check-row { display:flex; align-items:center; gap:8px; font-size:.82rem; color:#C4B5FD; margin-bottom:10px; }
-    .check-row input { width:auto; margin:0; }
-    .modal-backdrop { position:fixed; inset:0; z-index:60; background:rgba(6,10,24,.84); backdrop-filter:blur(8px); display:none; align-items:center; justify-content:center; padding:20px; }
-    .modal-backdrop.open { display:flex; }
-    .modal-box { width:100%; max-width:740px; max-height:90vh; overflow-y:auto; background:var(--bg-card); border:1px solid rgba(123,92,255,.45); border-radius:var(--radius); padding:26px; box-shadow:0 24px 64px rgba(0,0,0,.7); }
-    .field-grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(210px, 1fr)); gap:12px; }
-    .field label { display:block; font-size:.76rem; color:var(--text-secondary); margin-bottom:4px; }
+    .field input:focus, .field select:focus, .field textarea:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px rgba(123, 92, 255, .2); }
+    .table-scroll { overflow-x: auto; }
+    table.pd-table { width: 100%; border-collapse: collapse; font-size: .88rem; }
+    table.pd-table th { text-align: left; padding: 12px 14px; color: var(--gold); font-size: .75rem; text-transform: uppercase; letter-spacing: .7px; border-bottom: 1px solid var(--border); }
+    table.pd-table td { padding: 14px; border-bottom: 1px solid rgba(123, 92, 255, .1); vertical-align: top; }
+    table.pd-table tr:hover td { background: rgba(123, 92, 255, .05); }
+    .pill { display: inline-flex; align-items: center; gap: 6px; padding: 4px 11px; border-radius: 50px; font-size: .75rem; font-weight: 600; }
+    .pill-ok { background: rgba(52, 211, 153, .14); color: var(--green); border: 1px solid rgba(52, 211, 153, .35); }
+    .pill-warn { background: rgba(244, 200, 66, .12); color: var(--gold); border: 1px solid rgba(244, 200, 66, .35); }
+    .pill-muted { background: rgba(124, 115, 160, .15); color: var(--text-secondary); border: 1px solid var(--border); }
+    .btn-sm { padding: 7px 13px; border-radius: 9px; font-size: .78rem; font-weight: 600; display: inline-flex; align-items: center; gap: 6px; transition: all .2s; }
+    .btn-gold { background: rgba(244, 200, 66, .14); color: var(--gold); border: 1px solid rgba(244, 200, 66, .45); }
+    .btn-gold:hover { background: rgba(244, 200, 66, .26); color: #fff; }
+    .btn-danger { background: rgba(248, 113, 113, .12); color: #fca5a5; border: 1px solid rgba(248, 113, 113, .3); }
+    .btn-danger:hover { background: rgba(248, 113, 113, .25); color: #fff; }
+    .actions-stack { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+    .modal-backdrop { position: fixed; inset: 0; z-index: 60; background: rgba(6, 10, 24, .82); backdrop-filter: blur(8px); display: none; align-items: center; justify-content: center; padding: 20px; }
+    .modal-backdrop.open { display: flex; }
+    .modal-box { width: 100%; max-width: 760px; max-height: 90vh; overflow-y: auto; background: var(--bg-card); border: 1px solid rgba(123, 92, 255, .4); border-radius: var(--radius); padding: 26px; box-shadow: 0 24px 64px rgba(0,0,0,.65); }
+    .alert-banner { background: rgba(123, 92, 255, .2); border: 1px solid var(--gold); color: #fff; padding: 14px 18px; border-radius: var(--radius-sm); margin-bottom: 20px; font-size: .9rem; }
+    .check-row { display: inline-flex; align-items: center; gap: 8px; font-size: .84rem; color: var(--text-secondary); margin-top: 10px; cursor: pointer; }
+    .check-row input { width: auto; }
   </style>`;
 }
 
@@ -1650,13 +1637,13 @@ function renderErrorHTML(title, details) {
 <head>${renderSharedHead(title)}</head>
 <body>
   ${renderBackgroundLayer()}
-  <div class="app-layer" style="min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px;">
-    <div class="panel" style="width:100%;max-width:620px;">
-      <h2>${escapeHtml(title)}</h2>
-      <pre style="white-space:pre-wrap;background:rgba(6,10,24,.9);border:1px solid var(--border);padding:14px;border-radius:10px;color:#fecaca;font-size:.82rem;margin-bottom:16px;">${escapeHtml(details)}</pre>
-      <a href="/" class="btn-primary" style="display:inline-block;">Recharger la console</a>
+  <main style="position:relative;z-index:1;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px;">
+    <div class="admin-card" style="width:100%;max-width:620px;padding:32px;">
+      <h1 class="display" style="font-size:1.8rem;color:var(--gold);margin-bottom:10px;">${escapeHtml(title)}</h1>
+      <pre style="white-space:pre-wrap;background:rgba(6,10,24,.9);border:1px solid var(--border);padding:14px;border-radius:10px;color:#fecaca;font-size:.82rem;margin-bottom:18px;">${escapeHtml(details)}</pre>
+      <a href="/" class="btn-primary">Recharger la console</a>
     </div>
-  </div>
+  </main>
 </body>
 </html>`, {
     status: 500,
@@ -1665,31 +1652,33 @@ function renderErrorHTML(title, details) {
 }
 
 // ============================================================================
-// INTERFACES HTML (LOGIN, SÉLECTION FICHE AGENCE & DASHBOARD UNIFIÉ)
+// INTERFACES HTML (VISUEL EXACT DU WORKER 2)
 // ============================================================================
 
 function renderLoginHTML(error = '') {
   return `<!DOCTYPE html>
 <html lang="fr">
 <head>
-  ${renderSharedHead('SuperAdmin — Pont Digital • Univers NyXia')}
+  ${renderSharedHead('Connexion • SuperAdmin Pont Digital')}
 </head>
 <body>
   ${renderBackgroundLayer()}
-  <div class="app-layer" style="display:flex;align-items:center;justify-content:center;min-height:100vh;padding:20px;">
-    <div class="panel" style="width:100%;max-width:410px;padding:36px 30px;text-align:center;">
-      <div style="width:88px;height:88px;margin:0 auto 16px;border-radius:50%;padding:2px;background:linear-gradient(135deg,#7B5CFF,#F4C842);box-shadow:0 0 28px rgba(123,92,255,0.55);">
-        <img src="${NYXIA_AVATAR_URL}" alt="NyXia" style="width:100%;height:100%;object-fit:cover;object-position:top;border-radius:50%;display:block;background:#060A18;">
-      </div>
-      <h1 class="display" style="font-size:1.95rem;color:var(--gold);margin-bottom:4px;">PONT DIGITAL • Admin</h1>
-      <p style="color:var(--text-secondary);font-size:.9rem;margin-bottom:22px;">Poste de commandement réservé à l'équipe.</p>
-      ${error ? `<div style="background:rgba(239,68,68,0.15);border:1px solid #EF4444;color:#FCA5A5;padding:10px;border-radius:10px;margin-bottom:14px;font-size:.85rem;">${escapeHtml(error)}</div>` : ''}
-      <form method="POST" action="/login">
-        <input type="password" name="password" placeholder="Mot de passe d'accès" required autofocus />
-        <button type="submit" class="btn-primary" style="width:100%;padding:13px;font-size:.96rem;">Déverrouiller la console</button>
+  <main style="position:relative;z-index:1;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px;">
+    <div class="admin-card" style="width:100%;max-width:440px;text-align:center;padding:36px 28px;">
+      <img src="${NYXIA_AVATAR_URL}" alt="NyXia • Pont Digital" style="width:84px;height:84px;border-radius:50%;margin:0 auto 16px;border:2px solid var(--gold);box-shadow:0 0 30px rgba(244,200,66,.4);object-fit:cover;object-position:top;">
+      <span style="font-size:.75rem;letter-spacing:1.5px;text-transform:uppercase;color:var(--gold);font-weight:700;">Agence Pont Digital</span>
+      <h1 class="display" style="font-size:2.1rem;margin:6px 0 8px;color:#fff;">Console Super Admin</h1>
+      <p style="color:var(--text-secondary);font-size:.9rem;margin-bottom:24px;">Accès réservé à la direction et à l'équipe Appointment Setting.</p>
+      ${error ? `<div style="background:rgba(248,113,113,.15);border:1px solid rgba(248,113,113,.4);color:#fecaca;padding:10px 14px;border-radius:10px;font-size:.85rem;margin-bottom:16px;">${escapeHtml(error)}</div>` : ''}
+      <form method="POST" action="/login" style="text-align:left;">
+        <div class="field" style="margin-bottom:18px;">
+          <label for="password">Mot de passe Super Admin ou Équipe</label>
+          <input type="password" id="password" name="password" placeholder="••••••••••••" required autofocus>
+        </div>
+        <button type="submit" class="btn-primary" style="width:100%;padding:13px;font-size:.95rem;">Déverrouiller la console</button>
       </form>
     </div>
-  </div>
+  </main>
 </body>
 </html>`;
 }
@@ -1705,30 +1694,29 @@ function renderSelectLocationHTML(client, locations) {
   return `<!DOCTYPE html>
 <html lang="fr">
 <head>
-  ${renderSharedHead('Sélectionner la fiche Google — Pont Digital')}
+  ${renderSharedHead('Associer une fiche Google • Pont Digital')}
 </head>
 <body>
   ${renderBackgroundLayer()}
-  <div class="app-layer" style="display:flex;align-items:center;justify-content:center;min-height:100vh;padding:20px;">
-    <div class="panel" style="width:100%;max-width:520px;padding:32px;">
-      <h2>Compte Agence Google Détecté</h2>
-      <p style="color:var(--text-secondary);font-size:.92rem;margin-bottom:18px;">
-        Ce compte Google gère <strong>${locations.length} établissements</strong>.<br>
-        Choisis exactement quelle fiche Google Business Profile associer à <strong>${escapeHtml(client.business_name)}</strong> (${escapeHtml(client.city)}) :
+  <main style="position:relative;z-index:1;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px;">
+    <div class="admin-card" style="width:100%;max-width:520px;padding:32px;">
+      <h1 class="display" style="font-size:1.9rem;color:var(--gold);margin-bottom:10px;">Sélectionne la fiche Google Business</h1>
+      <p style="color:var(--text-secondary);font-size:.92rem;margin-bottom:20px;">
+        Ce compte Google gère <strong>${locations.length} établissements</strong>. Choisis celui à associer à <strong>${escapeHtml(client.business_name)}</strong> (${escapeHtml(client.city)}) :
       </p>
       ${locations.length > 0
         ? `<form method="POST" action="/api/google/assign-location">
-             <input type="hidden" name="client_id" value="${client.id}" />
-             <select name="selected_location" required>
-               ${optionsHtml}
-             </select>
+             <input type="hidden" name="client_id" value="${client.id}">
+             <div class="field" style="margin-bottom:20px;">
+               <label>Fiche d'établissement Google</label>
+               <select name="selected_location" required>${optionsHtml}</select>
+             </div>
              <button type="submit" class="btn-primary" style="width:100%;padding:12px;">Associer cette fiche Google au client</button>
            </form>`
-        : `<p style="color:#FCA5A5;">Aucune fiche Google Business Profile trouvée sur ce compte Google.</p>`
+        : `<a href="/" class="btn-primary" style="display:inline-block;text-align:center;width:100%;">Retourner au Super Admin</a>`
       }
-      <a href="/" style="display:block;text-align:center;margin-top:14px;color:var(--text-secondary);font-size:.85rem;">← Retour au tableau de bord</a>
     </div>
-  </div>
+  </main>
 </body>
 </html>`;
 }
@@ -1752,7 +1740,7 @@ function renderDashboardHTML(clients, recentReviews, recentLeads, recentAppointm
     google_api_error: 'Erreur de communication avec l’API Google Business Profile.',
     lead_processed: 'Alerte Setter générée par NyXia : SMS envoyé vers ton cellulaire d’agence (AGENCY_ALERT_PHONE) et lead enregistré dans D1.',
     lead_status_updated: 'Statut de suivi du lead mis à jour.',
-    rdv_booked: 'Rendez-vous qualifié enregistré ! Clique sur « 📅 Envoyer l’invitation Google Agenda » ci-dessous pour notifier instantanément le client et le prospect.',
+    rdv_booked: 'Rendez-vous qualifié enregistré ! Clique sur « 📅 Envoyer l’invitation Google Agenda » dans le journal ci-dessous.',
     rdv_deleted: 'Rendez-vous retiré du journal.'
   };
 
@@ -1769,367 +1757,412 @@ function renderDashboardHTML(clients, recentReviews, recentLeads, recentAppointm
     `<option value="${c.id}">${escapeHtml(c.business_name)} (${escapeHtml(c.city)})</option>`
   ).join('');
 
-  const rows = clients.map(c => {
+  const clientsRows = clients.map(c => {
     const isConnected = Boolean(c.google_refresh_token);
+    const hasCal = Boolean(c.booking_calendar_url);
     const webhookClientUrl = `${origin}/webhook/heyzine?client_id=${c.id}`;
     let photosCount = 0;
     try { photosCount = JSON.parse(c.gallery_urls || '[]').length; } catch (_) {}
 
     return `
-    <tr>
-      <td>
-        <div style="display:flex;align-items:flex-start;gap:10px;">
-          ${c.cover_photo_url ? `<img src="${escapeHtml(c.cover_photo_url)}" alt="" style="width:42px;height:42px;border-radius:10px;object-fit:cover;border:1px solid var(--border);flex-shrink:0;">` : ''}
-          <div>
-            <strong style="color:#fff;font-size:.96rem;">${escapeHtml(c.business_name)}</strong> <span style="color:var(--gold); font-size:0.75rem;">#${c.id}</span><br>
-            <span style="font-size:0.78rem; color:var(--text-secondary);">${escapeHtml(c.city)} • ${escapeHtml(c.category)}</span><br>
-            <span style="font-size:0.74rem; color:var(--text-muted);">${c.rdv_count || 0} RDV • ${c.lead_count || 0} leads • ${c.review_count || 0} avis • ${photosCount} photo(s) galerie</span>
-            ${c.booking_notes ? `<div style="font-size:.75rem;color:#C4B5FD;margin-top:4px;max-width:260px;">📝 ${escapeHtml(c.booking_notes)}</div>` : ''}
+      <tr>
+        <td>
+          <div style="display:flex;align-items:center;gap:10px;">
+            ${c.cover_photo_url ? `<img src="${escapeHtml(c.cover_photo_url)}" alt="" style="width:40px;height:40px;border-radius:10px;object-fit:cover;border:1px solid var(--border);flex-shrink:0;">` : ''}
+            <div>
+              <strong style="color:#fff;font-size:.96rem;">${escapeHtml(c.business_name)}</strong> <span style="color:var(--gold);font-size:.75rem;">#${c.id}</span>
+              <div style="font-size:.8rem;color:var(--text-muted);">${escapeHtml(c.category)} • ${escapeHtml(c.city)}</div>
+              <div style="font-size:.76rem;color:var(--text-secondary);">${c.rdv_count || 0} RDV • ${c.lead_count || 0} leads • ${c.review_count || 0} avis • ${photosCount} photo(s) galerie</div>
+            </div>
           </div>
-        </div>
-      </td>
+        </td>
+        <td>
+          ${hasCal
+            ? `<span class="pill pill-ok">● Agenda Google prêt</span>
+               <div style="margin-top:6px;"><a href="${escapeHtml(c.booking_calendar_url)}" target="_blank" rel="noopener" class="btn-sm btn-gold">📅 Ouvrir son agenda setter</a></div>`
+            : `<span class="pill pill-warn">○ Lien agenda à ajouter</span>`}
+          ${c.booking_notes ? `<div style="font-size:.76rem;color:var(--text-muted);margin-top:5px;max-width:240px;">${escapeHtml(c.booking_notes)}</div>` : ''}
+          <div style="margin-top:6px;">
+            <button type="button" class="btn-sm btn-ghost" onclick="copyWebhook('${escapeHtml(webhookClientUrl)}', this)" title="URL exacte à coller dans le formulaire Heyzine de ce client">📋 Copier Webhook Heyzine #${c.id}</button>
+          </div>
+        </td>
+        <td>
+          ${isConnected
+            ? `<span class="pill pill-ok">● ${escapeHtml(c.google_location_title || 'GBP Actif')}</span>`
+            : `<span class="pill pill-muted">○ Non connecté</span>`}
+          <div class="actions-stack" style="margin-top:6px;">
+            <a href="/oauth/google/connect?client_id=${c.id}" class="btn-sm btn-ghost">${isConnected ? '↻ Réauth GBP' : '🔗 Connecter Google GBP'}</a>
+            ${isConnected ? `<a href="/oauth/google/select-location?client_id=${c.id}" class="btn-sm btn-ghost">Changer fiche</a>` : ''}
+          </div>
+        </td>
+        <td>
+          <div class="actions-stack">
+            <button type="button" class="btn-sm btn-ghost" onclick='openEditModal(${JSON.stringify(c).replace(/'/g, "&#39;")})'>✏️ Modifier</button>
+            ${isConnected ? `
+              <form method="POST" action="/api/google/sync-reviews" style="margin:0;">
+                <input type="hidden" name="client_id" value="${c.id}">
+                <button type="submit" class="btn-sm btn-gold">↻ Sync Avis</button>
+              </form>
+            ` : ''}
+            <form method="POST" action="/api/clients/delete" style="margin:0;" onsubmit="return confirm('Supprimer définitivement ${escapeHtml(c.business_name)} ?');">
+              <input type="hidden" name="id" value="${c.id}">
+              <button type="submit" class="btn-sm btn-danger">🗑️</button>
+            </form>
+          </div>
+        </td>
+      </tr>
+    `;
+  }).join('');
+
+  const apptRows = recentAppointments.map(a => `
+    <tr>
+      <td><strong style="color:#fff;">${escapeHtml(a.business_name)}</strong><div style="font-size:.76rem;color:var(--text-muted);">${escapeHtml(a.city)}</div></td>
+      <td>${escapeHtml(a.prospect_name)}<div style="font-size:.78rem;color:var(--text-muted);">${escapeHtml(a.prospect_phone || '')} ${a.prospect_email ? '• ' + escapeHtml(a.prospect_email) : ''}</div></td>
+      <td><span class="pill pill-ok">📅 ${escapeHtml(a.appointment_datetime.replace('T', ' '))} (${a.duration_minutes} min)</span></td>
+      <td style="font-size:.82rem;color:var(--text-secondary);max-width:240px;">${escapeHtml(a.setter_notes || '')}</td>
       <td>
-        ${c.booking_calendar_url
-          ? `<span class="badge connected">● Agenda Google prêt</span><br>
-             <a href="${escapeHtml(c.booking_calendar_url)}" target="_blank" rel="noopener" class="cal-badge">📅 Voir disponibilités Workspace ↗</a>`
-          : `<span class="badge">○ Agenda à configurer</span>`
-        }
-        ${c.client_email ? `<div style="font-size:.75rem;color:var(--text-secondary);margin-top:5px;">✉️ ${escapeHtml(c.client_email)}</div>` : ''}
-        <div style="margin-top:7px;">
-          <button type="button" class="copy-wh-btn" onclick="copyWebhook('${escapeHtml(webhookClientUrl)}', this)" title="URL exacte à coller dans le formulaire Heyzine de ce client">📋 Webhook Heyzine #${c.id}</button>
-        </div>
-      </td>
-      <td>
-        ${isConnected
-          ? `<div style="display:flex; gap:6px; align-items:center; flex-wrap:wrap;">
-               <span class="badge connected">● ${escapeHtml(c.google_location_title || 'GBP Actif')}</span>
-               <form method="POST" action="/api/google/sync-reviews" style="margin:0;">
-                 <input type="hidden" name="client_id" value="${c.id}" />
-                 <button type="submit" class="sync-btn">↻ Sync Avis</button>
-               </form>
-               <a href="/oauth/google/select-location?client_id=${c.id}" class="oauth-link">Changer fiche</a>
-               <a href="/oauth/google/connect?client_id=${c.id}" class="oauth-link">Réauth</a>
-             </div>`
-          : `<a href="/oauth/google/connect?client_id=${c.id}" class="oauth-btn">🔗 Connecter Google GBP</a>`
-        }
-      </td>
-      <td>
-        <div style="display:flex;gap:6px;flex-wrap:wrap;">
-          <button type="button" class="btn-ghost" style="padding:6px 12px;font-size:.78rem;" onclick='openEditModal(${JSON.stringify(c).replace(/'/g, "&#39;")})'>✏️ Modifier</button>
-          <form method="POST" action="/api/clients/delete" style="margin:0;" onsubmit="return confirm('Supprimer définitivement cette fiche ?');">
-            <input type="hidden" name="id" value="${c.id}" />
-            <button type="submit" class="del-btn">🗑️</button>
+        <div class="actions-stack">
+          <a href="${escapeHtml(a.gcal_event_url)}" target="_blank" rel="noopener" class="btn-sm btn-gold">📅 Invitation Google Agenda ↗</a>
+          <form method="POST" action="/api/setter/delete" style="margin:0;">
+            <input type="hidden" name="id" value="${a.id}">
+            <button type="submit" class="btn-sm btn-danger">✕</button>
           </form>
         </div>
       </td>
     </tr>
-  `;
-  }).join('');
-
-  const appointmentCards = recentAppointments.map(a => `
-    <div style="background:rgba(6,10,24,0.78); border:1px solid rgba(244,200,66,0.32); border-radius:12px; padding:14px; margin-bottom:12px;">
-      <div style="display:flex; justify-content:space-between; font-size:0.84rem; margin-bottom:6px; gap:8px; flex-wrap:wrap;">
-        <strong style="color:var(--gold);">${escapeHtml(a.business_name)} (${escapeHtml(a.city)})</strong>
-        <span style="color:var(--green);font-weight:600;">📅 ${escapeHtml(a.appointment_datetime.replace('T', ' '))} (${a.duration_minutes} min)</span>
-      </div>
-      <div style="font-size:0.85rem; color:#fff; margin-bottom:6px;">
-        Prospect qualifié : <strong>${escapeHtml(a.prospect_name)}</strong>
-        ${a.prospect_phone ? `• 📞 ${escapeHtml(a.prospect_phone)}` : ''}
-        ${a.prospect_email ? `• ✉️ ${escapeHtml(a.prospect_email)}` : ''}
-      </div>
-      ${a.setter_notes ? `<div style="font-size:0.8rem; color:var(--text-secondary); margin-bottom:8px;">Notes : ${escapeHtml(a.setter_notes)}</div>` : ''}
-      <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
-        <a href="${escapeHtml(a.gcal_event_url)}" target="_blank" rel="noopener" class="gcal-btn">📅 Envoyer l’invitation Google Agenda ↗</a>
-        ${a.booking_calendar_url ? `<a href="${escapeHtml(a.booking_calendar_url)}" target="_blank" rel="noopener" class="oauth-link">Ouvrir page réservation client</a>` : ''}
-        <form method="POST" action="/api/setter/delete" style="margin:0;margin-left:auto;">
-          <input type="hidden" name="id" value="${a.id}" />
-          <button type="submit" class="del-btn" title="Retirer">✕</button>
-        </form>
-      </div>
-    </div>
   `).join('');
 
-  const leadCards = recentLeads.map(l => {
-    const smsBadge = l.sms_status === 'sent'
-      ? '<span style="color:var(--green);font-weight:600;">✓ SMS reçu par l’agence</span>'
-      : `<span style="color:var(--gold);">${escapeHtml(l.sms_status)}</span>`;
-    const st = l.handling_status || 'nouveau';
-    return `
-      <div style="background:rgba(6,10,24,0.78); border:1px solid rgba(123,92,255,0.25); border-radius:12px; padding:14px; margin-bottom:12px;">
-        <div style="display:flex; justify-content:space-between; font-size:0.82rem; margin-bottom:6px; gap:8px; flex-wrap:wrap;">
-          <strong style="color:var(--gold);">Client : ${escapeHtml(l.business_name || 'Non associé')}</strong>
-          ${smsBadge}
-        </div>
-        <div style="font-size:0.84rem; color:var(--text-secondary); margin-bottom:6px;">
-          Prospect à appeler : <strong style="color:#fff;">${escapeHtml(l.prospect_name)}</strong> (${escapeHtml(l.prospect_contact)})
-        </div>
-        <div style="font-size:0.81rem; color:#C4B5FD; background:rgba(14,20,48,0.9); padding:9px 12px; border-radius:8px; border-left:3px solid #7B5CFF; margin-bottom:8px;">
-          <strong>Alerte SMS NyXia :</strong> ${escapeHtml(l.nyxia_sms_text || '')}
-        </div>
-        <form method="POST" action="/api/leads/status" style="margin:0; display:flex; gap:8px; align-items:center;">
-          <input type="hidden" name="lead_id" value="${l.id}" />
-          <select name="handling_status" style="margin:0; padding:6px 10px; font-size:0.8rem; flex:1;">
-            <option value="nouveau" ${st === 'nouveau' ? 'selected' : ''}>🔴 Nouveau — À appeler d’urgence</option>
-            <option value="en_cours" ${st === 'en_cours' ? 'selected' : ''}>🟡 Pris en charge par le Setter</option>
-            <option value="rdv_confirme" ${st === 'rdv_confirme' ? 'selected' : ''}>🟢 RDV confirmé dans l’agenda client</option>
-          </select>
-          <button type="submit" class="sync-btn">Mettre à jour</button>
-        </form>
-      </div>
-    `;
-  }).join('');
-
-  const reviewCards = recentReviews.map(r => {
+  const reviewsRows = recentReviews.map(r => {
     const hasReply = Boolean(r.reply_comment);
     const canReply = Boolean(r.google_refresh_token);
     return `
-    <div style="background:rgba(6,10,24,0.78); border:1px solid rgba(244,200,66,0.22); border-radius:12px; padding:14px; margin-bottom:12px;">
-      <div style="display:flex; justify-content:space-between; font-size:0.84rem; margin-bottom:4px;">
-        <strong style="color:var(--gold);">${escapeHtml(r.business_name)}</strong>
-        <span style="color:#FBBF24;">${'★'.repeat(r.star_rating || 5)}</span>
-      </div>
-      <div style="font-size:0.8rem; color:var(--text-muted); margin-bottom:6px;">Par ${escapeHtml(r.reviewer_name)}</div>
-      <div style="font-size:0.86rem; color:#E2E8F0; margin-bottom:10px;">${escapeHtml(r.comment || '(Note sans commentaire)')}</div>
-      ${hasReply
-        ? `<div style="font-size:0.81rem; color:var(--green); background:rgba(14,20,48,0.9); padding:9px 12px; border-radius:8px; border-left:3px solid var(--green);">
-             <strong>✓ Réponse publiée :</strong> ${escapeHtml(r.reply_comment)}
-           </div>`
-        : (canReply
-            ? `<form method="POST" action="/api/google/reply-review" style="margin:0;">
-                 <input type="hidden" name="review_id" value="${escapeHtml(r.review_id)}" />
-                 <button type="submit" class="nyxia-reply-btn">✨ Répondre via NyXia &amp; Publier sur Google</button>
-               </form>`
-            : `<span style="font-size:0.76rem; color:var(--text-muted);">Fiche Google non connectée pour répondre</span>`)
-      }
-    </div>
-  `;
+      <tr>
+        <td>
+          <strong style="color:#fff;">${escapeHtml(r.business_name)}</strong>
+          <div style="font-size:.8rem;color:var(--gold);">${'★'.repeat(r.star_rating || 5)} • ${escapeHtml(r.reviewer_name)}</div>
+        </td>
+        <td style="max-width:360px;color:var(--text-secondary);">${escapeHtml(r.comment || '(Avis sans texte)')}</td>
+        <td style="min-width:260px;">
+          ${hasReply
+            ? `<div style="font-size:.84rem;color:var(--green);background:rgba(52,211,153,.08);padding:10px;border-radius:10px;border:1px solid rgba(52,211,153,.25);">${escapeHtml(r.reply_comment)}</div>`
+            : (canReply
+                ? `<form method="POST" action="/api/google/reply-review" style="margin:0;">
+                     <input type="hidden" name="review_id" value="${escapeHtml(r.review_id)}">
+                     <button type="submit" class="btn-sm btn-gold">✨ Répondre via NyXia &amp; Publier sur Google</button>
+                   </form>`
+                : `<span class="pill pill-muted">Fiche Google non connectée</span>`)}
+        </td>
+      </tr>
+    `;
+  }).join('');
+
+  const leadsRows = recentLeads.map(l => {
+    const st = l.handling_status || 'nouveau';
+    return `
+      <tr>
+        <td>
+          <strong style="color:#fff;">${escapeHtml(l.prospect_name || 'Prospect')}</strong>
+          <div style="font-size:.78rem;color:var(--text-muted);">${escapeHtml(l.prospect_contact || '')}</div>
+        </td>
+        <td>
+          <strong style="color:var(--gold);">${escapeHtml(l.business_name || 'Revue générale')}</strong>
+          <div style="font-size:.76rem;color:var(--text-secondary);max-width:300px;">${escapeHtml(l.nyxia_sms_text || l.prospect_message || '')}</div>
+        </td>
+        <td>
+          <form method="POST" action="/api/leads/status" style="margin:0;display:flex;gap:6px;align-items:center;">
+            <input type="hidden" name="lead_id" value="${l.id}">
+            <select name="handling_status" style="padding:6px 10px;border-radius:8px;background:rgba(6,10,24,.85);border:1px solid var(--border);color:#fff;font-size:.8rem;">
+              <option value="nouveau" ${st === 'nouveau' ? 'selected' : ''}>🔴 Nouveau</option>
+              <option value="en_cours" ${st === 'en_cours' ? 'selected' : ''}>🟡 En cours</option>
+              <option value="rdv_confirme" ${st === 'rdv_confirme' ? 'selected' : ''}>🟢 RDV confirmé</option>
+            </select>
+            <button type="submit" class="btn-sm btn-ghost">OK</button>
+          </form>
+        </td>
+      </tr>
+    `;
   }).join('');
 
   return `<!DOCTYPE html>
 <html lang="fr">
 <head>
-  ${renderSharedHead('SuperAdmin • Pont Digital • NyXia')}
+  ${renderSharedHead('SuperAdmin • Pont Digital')}
 </head>
 <body>
   ${renderBackgroundLayer()}
-  <div class="app-layer">
-    <header class="site-header">
-      <a href="/" class="brand">
-        <img src="${NYXIA_AVATAR_URL}" alt="NyXia">
-        <div class="brand-name">
-          <b>PONT DIGITAL • SuperAdmin</b>
-          <span>Setter, Agendas Workspace, Heyzine &amp; Google GBP</span>
-        </div>
-      </a>
-      <div class="header-right">
-        <div class="webhook-pill">Agence Setter • Webhook Heyzine &amp; SMS Actifs</div>
-        <a href="/logout" class="btn-ghost">Déconnexion</a>
+
+  <!-- HEADER PLEINE LARGEUR DU WORKER 2 -->
+  <header class="site-header">
+    <a href="/" class="brand">
+      <img src="${NYXIA_AVATAR_URL}" alt="NyXia • Pont Digital">
+      <div class="brand-name">
+        <b>PONT DIGITAL • SUPER ADMIN</b>
+        <span>Gestion Agence, GBP &amp; Appointment Setting</span>
       </div>
-    </header>
+    </a>
+    <div class="header-right">
+      <a href="#section-sms-test" class="btn-ghost">📱 Tester Alerte SMS Setter</a>
+      <a href="/logout" class="btn-primary">Déconnexion</a>
+    </div>
+  </header>
 
-    <main class="admin-wrap">
-      ${msg && alerts[msg] ? `<div class="alert">${alerts[msg]}</div>` : ''}
+  <!-- CONTENU EMPILÉ PLEINE LARGEUR DU WORKER 2 -->
+  <main class="admin-wrap">
+    ${msg && alerts[msg] ? `<div class="alert-banner">${alerts[msg]}</div>` : ''}
 
-      <!-- KPI BAR (DISPOSITION WORKER 2) -->
-      <div class="kpi-grid">
-        <div class="kpi-box">
-          <div class="kpi-label">Entrepreneurs actifs</div>
-          <div class="kpi-val">${clients.length}</div>
-        </div>
-        <div class="kpi-box">
-          <div class="kpi-label">Agendas Workspace prêts</div>
-          <div class="kpi-val">${bookingReadyCount} / ${clients.length}</div>
-        </div>
-        <div class="kpi-box">
-          <div class="kpi-label">Fiches Google connectées</div>
-          <div class="kpi-val">${gbpConnectedCount} / ${clients.length}</div>
-        </div>
-        <div class="kpi-box">
-          <div class="kpi-label">Avis en attente de réponse</div>
-          <div class="kpi-val">${pendingReviewsCount}</div>
-        </div>
+    <!-- 1. KPI BAR -->
+    <div class="kpi-grid">
+      <div class="kpi-box">
+        <div class="kpi-label">Entrepreneurs actifs</div>
+        <div class="kpi-val">${clients.length}</div>
       </div>
-
-      <!-- 3 COLONNES PRINCIPALES (FONCTIONS WORKER 1) -->
-      <div class="grid-3">
-        <div class="panel">
-          <h2>+ Nouvel entrepreneur &amp; Agenda</h2>
-          <form method="POST" action="/api/clients">
-            <input type="text" name="business_name" placeholder="Nom de l'entreprise *" required />
-            <input type="text" name="city" placeholder="Ville / Région *" required />
-            <input type="text" name="category" placeholder="Métier / Spécialité *" required />
-            <input type="text" name="phone" placeholder="Téléphone public de l'entreprise" />
-            <input type="email" name="client_email" placeholder="Courriel client / vendeur (invitations RDV)" />
-            <input type="url" name="booking_calendar_url" placeholder="Lien Page Réservation Google Workspace" />
-            <input type="text" name="booking_notes" placeholder="Consignes setters (critères qualification, secteur...)" />
-            <input type="url" name="heyzine_url" placeholder="URL Page Heyzine du client (#page/X)" />
-            <input type="url" name="interview_video_url" placeholder="URL Vidéo entrevue (YouTube/Vimeo/MP4)" />
-            <input type="url" name="cover_photo_url" placeholder="URL Photo couverture principale" />
-            <input type="text" name="gallery_urls" placeholder="Photos galerie (jusqu'à 5 URLs séparées par virgule)" />
-            <button type="submit" class="btn-primary" style="width:100%;">Créer la fiche verrouillée D1</button>
-          </form>
-        </div>
-
-        <div class="panel">
-          <h2>📅 Setter • Booker un RDV qualifié</h2>
-          <form method="POST" action="/api/setter/book">
-            <select name="client_id" required>
-              <option value="">-- Pour quel entrepreneur client ? --</option>
-              ${allClientOptions}
-            </select>
-            <input type="text" name="prospect_name" placeholder="Nom du prospect qualifié *" required />
-            <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
-              <input type="text" name="prospect_phone" placeholder="Téléphone prospect" />
-              <input type="email" name="prospect_email" placeholder="Courriel prospect" />
-            </div>
-            <div style="display:grid; grid-template-columns:1.4fr 0.6fr; gap:8px;">
-              <input type="datetime-local" name="appointment_datetime" required title="Date et heure du rendez-vous" />
-              <select name="duration_minutes" title="Durée du RDV">
-                <option value="30">30 min</option>
-                <option value="45">45 min</option>
-                <option value="60">60 min</option>
-              </select>
-            </div>
-            <textarea name="setter_notes" rows="3" placeholder="Notes de qualification pour le vendeur (besoin, budget, adresse)..."></textarea>
-            <button type="submit" class="btn-gold" style="width:100%;">📅 Enregistrer le RDV &amp; Préparer l’invitation</button>
-          </form>
-
-          <hr style="border:0; border-top:1px solid rgba(123,92,255,0.2); margin:18px 0;">
-
-          <h2>Tester Alerte SMS Setter</h2>
-          <form method="POST" action="/api/test-nyxia-sms" style="margin:0;">
-            <select name="client_id" required>
-              <option value="">-- Prospect intéressé par quel client ? --</option>
-              ${allClientOptions}
-            </select>
-            <input type="text" name="prospect_name" placeholder="Nom du prospect test" value="Sophie Gagnon" required />
-            <input type="text" name="prospect_contact" placeholder="Tél ou courriel du prospect" value="450-555-0142" required />
-            <input type="text" name="prospect_message" placeholder="Message du prospect" value="Intéressée par vos services suite à l'article Heyzine !" required />
-            <button type="submit" class="btn-primary" style="width:100%;">Simuler un lead vers ton cellulaire</button>
-          </form>
-        </div>
-
-        <div class="panel">
-          <h2>Studio Publication Google (Multi-Formats)</h2>
-          <form method="POST" action="/api/google/create-post" id="post-studio-form">
-            <select name="client_id" id="post-client-select" required>
-              <option value="">-- Sélectionner le client GBP (${connectedClients.length}) --</option>
-              ${connectedOptions}
-            </select>
-
-            <select name="topic_type" id="post-topic-type" onchange="togglePostFields()">
-              <option value="STANDARD">📰 Actualité / Reportage Vidéo Heyzine</option>
-              <option value="OFFER">🎁 Offre Spéciale / Promotion</option>
-              <option value="EVENT">📅 Événement / Portes Ouvertes</option>
-            </select>
-
-            <div id="event-offer-fields" style="display:none;">
-              <input type="text" name="event_title" placeholder="Titre de l'offre ou de l'événement *" />
-              <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
-                <input type="date" name="start_date" title="Date de début" />
-                <input type="date" name="end_date" title="Date de fin" />
-              </div>
-              <input type="text" name="coupon_code" id="coupon-field" placeholder="Code promo (optionnel pour Offre)" />
-            </div>
-
-            <button type="button" class="draft-btn" id="btn-nyxia-draft" onclick="draftPostWithNyxia()">✨ Rédiger ce post sur mesure avec NyXia</button>
-
-            <textarea name="summary" id="post-summary" rows="3" placeholder="Texte de la publication Google..." required></textarea>
-
-            <input type="url" name="media_url" id="post-media-url" placeholder="URL Photo personnalisée (vide = photo du client)" />
-            <label class="check-row">
-              <input type="checkbox" name="use_client_cover" value="1" checked />
-              Joindre automatiquement la photo enregistrée de ce client
-            </label>
-
-            <select name="action_type" id="post-action-type">
-              <option value="LEARN_MORE">Bouton : En savoir plus (Revue Heyzine)</option>
-              <option value="BOOK">Bouton : Réserver</option>
-              <option value="CALL">Bouton : Appeler</option>
-              <option value="SIGN_UP">Bouton : S'inscrire</option>
-            </select>
-
-            <input type="url" name="cta_url" id="post-cta-url" placeholder="Lien cible (vide = page Heyzine du client)" />
-            <button type="submit" class="btn-primary" style="width:100%;">Publier sur la fiche Google du client</button>
-          </form>
-        </div>
+      <div class="kpi-box">
+        <div class="kpi-label">Agendas Setting prêts</div>
+        <div class="kpi-val">${bookingReadyCount} / ${clients.length}</div>
       </div>
+      <div class="kpi-box">
+        <div class="kpi-label">Fiches Google connectées</div>
+        <div class="kpi-val">${gbpConnectedCount} / ${clients.length}</div>
+      </div>
+      <div class="kpi-box">
+        <div class="kpi-label">Avis en attente de réponse</div>
+        <div class="kpi-val">${pendingReviewsCount}</div>
+      </div>
+    </div>
 
-      <!-- RÉPERTOIRE DES ENTREPRENEURS (AVEC MODALE D'ÉDITION COMPLÈTE WORKER 2) -->
-      <div class="panel">
-        <h2>Entrepreneurs actifs, Agendas Workspace &amp; Médias Verrouillés (${clients.length})</h2>
-        <table>
+    <!-- 2. AJOUTER UN ENTREPRENEUR (PLEINE LARGEUR) -->
+    <section class="admin-card">
+      <h2 class="display" style="font-size:1.75rem;color:var(--gold);margin-bottom:14px;">+ Ajouter un entrepreneur au réseau Pont Digital</h2>
+      <form method="POST" action="/api/clients">
+        <div class="field-grid">
+          <div class="field"><label>Nom de l'entreprise *</label><input name="business_name" required placeholder="Ex: Clinique Harmonie"></div>
+          <div class="field"><label>Ville / Région *</label><input name="city" required placeholder="Ex: Terrebonne / Longueuil"></div>
+          <div class="field"><label>Catégorie d'activité *</label><input name="category" required placeholder="Ex: Massothérapie, Rénovation..."></div>
+          <div class="field"><label>Téléphone public</label><input name="phone" placeholder="514-000-0000"></div>
+          <div class="field"><label>Courriel vendeur (invitations RDV)</label><input type="email" name="client_email" placeholder="contact@entreprise.ca"></div>
+          <div class="field"><label>Lien Prise de RDV Google Workspace (Setter)</label><input type="url" name="booking_calendar_url" placeholder="https://calendar.app.google/..."></div>
+          <div class="field"><label>URL Page Heyzine (#page/X)</label><input type="url" name="heyzine_url" placeholder="https://heyzine.com/flip-book/...#page/1"></div>
+          <div class="field"><label>URL Vidéo entrevue (YouTube/Vimeo/MP4)</label><input type="url" name="interview_video_url" placeholder="https://..."></div>
+          <div class="field"><label>URL Photo couverture principale</label><input type="url" name="cover_photo_url" placeholder="https://..."></div>
+        </div>
+        <div class="field-grid" style="margin-top:14px;">
+          <div class="field"><label>Consignes pour les setters (script / critères qualification)</label><input name="booking_notes" placeholder="Ex: RDV découverte 20 min, secteur Rive-Nord uniquement"></div>
+          <div class="field"><label>Photos galerie (jusqu'à 5 URLs séparées par une virgule)</label><input name="gallery_urls" placeholder="https://img1.jpg, https://img2.jpg"></div>
+        </div>
+        <div style="margin-top:16px;">
+          <button type="submit" class="btn-primary">Enregistrer l'entrepreneur</button>
+        </div>
+      </form>
+    </section>
+
+    <!-- 3. RÉPERTOIRE DES ENTREPRENEURS (PLEINE LARGEUR) -->
+    <section class="admin-card">
+      <h2 class="display" style="font-size:1.75rem;color:#fff;margin-bottom:14px;">Répertoire des Entrepreneurs, Agendas &amp; Fiches Google</h2>
+      <div class="table-scroll">
+        <table class="pd-table">
           <thead>
             <tr>
-              <th>Entreprise &amp; Consignes</th>
-              <th>Agenda Workspace &amp; Webhook Heyzine</th>
+              <th>Entreprise &amp; Médias</th>
+              <th>Appointment Setting &amp; Webhook Heyzine</th>
               <th>Google Business Profile</th>
               <th>Actions</th>
             </tr>
           </thead>
           <tbody>
-            ${rows || '<tr><td colspan="4" style="color:var(--text-muted);text-align:center;padding:24px;">Aucun entrepreneur enregistré.</td></tr>'}
+            ${clientsRows || '<tr><td colspan="4" style="color:var(--text-muted);text-align:center;padding:24px;">Aucun entrepreneur enregistré pour le moment.</td></tr>'}
           </tbody>
         </table>
       </div>
+    </section>
 
-      <!-- JOURNAL RDV & LEADS HEYZINE -->
-      <div class="grid-2">
-        <div class="panel">
-          <h2>📅 Rendez-vous qualifiés livrés aux clients (${recentAppointments.length})</h2>
-          ${appointmentCards || '<p style="color:var(--text-muted); font-size:0.9rem;">Utilise le module Setter ci-dessus pour booker un premier rendez-vous qualifié.</p>'}
+    <!-- 4. JOURNAL APPOINTMENT SETTING + INVITATIONS GOOGLE AGENDA (PLEINE LARGEUR) -->
+    <section class="admin-card">
+      <h2 class="display" style="font-size:1.75rem;color:var(--gold);margin-bottom:14px;">Journal Appointment Setting • Rendez-vous bookés</h2>
+      <form method="POST" action="/api/setter/book" style="margin-bottom:20px;padding-bottom:18px;border-bottom:1px solid var(--border);">
+        <div class="field-grid">
+          <div class="field"><label>Entreprise cliente *</label><select name="client_id" required>${allClientOptions}</select></div>
+          <div class="field"><label>Nom du prospect *</label><input name="prospect_name" required placeholder="Prénom Nom"></div>
+          <div class="field"><label>Téléphone prospect</label><input name="prospect_phone" placeholder="514-000-0000"></div>
+          <div class="field"><label>Courriel prospect</label><input type="email" name="prospect_email" placeholder="prospect@email.com"></div>
+          <div class="field"><label>Date et heure du RDV *</label><input type="datetime-local" name="appointment_datetime" required></div>
+          <div class="field">
+            <label>Durée du RDV</label>
+            <select name="duration_minutes">
+              <option value="30">30 minutes</option>
+              <option value="45">45 minutes</option>
+              <option value="60">60 minutes</option>
+            </select>
+          </div>
+          <div class="field"><label>Notes de qualification</label><input name="setter_notes" placeholder="Besoin exprimé par le prospect"></div>
         </div>
-
-        <div class="panel">
-          <h2>Leads entrants à qualifier par les Setters (${recentLeads.length})</h2>
-          ${leadCards || '<p style="color:var(--text-muted); font-size:0.9rem;">Aucun prospect reçu depuis Heyzine Pro pour le moment.</p>'}
+        <div style="margin-top:12px;">
+          <button type="submit" class="btn-gold btn-sm" style="padding:10px 18px;">📅 Enregistrer le RDV &amp; Préparer l’invitation Google Agenda</button>
         </div>
+      </form>
+      <div class="table-scroll">
+        <table class="pd-table">
+          <thead>
+            <tr>
+              <th>Client</th>
+              <th>Prospect</th>
+              <th>Créneau</th>
+              <th>Notes</th>
+              <th>Invitation &amp; Action</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${apptRows || '<tr><td colspan="5" style="color:var(--text-muted);text-align:center;padding:18px;">Aucun rendez-vous enregistré.</td></tr>'}
+          </tbody>
+        </table>
       </div>
+    </section>
 
-      <!-- AVIS GOOGLE & SÉCURITÉ ÉQUIPE -->
-      <div class="grid-2">
-        <div class="panel">
-          <h2>Derniers avis Google synchronisés (${recentReviews.length})</h2>
-          ${reviewCards || '<p style="color:var(--text-muted); font-size:0.9rem;">Clique sur « ↻ Sync Avis » sur un client connecté.</p>'}
+    <!-- 5. STUDIO PUBLICATION GOOGLE BUSINESS PROFILE MULTI-FORMATS + NYXIA (PLEINE LARGEUR) -->
+    <section class="admin-card">
+      <h2 class="display" style="font-size:1.75rem;color:#fff;margin-bottom:14px;">Publier une actualité, offre ou événement Google Business Profile (avec NyXia)</h2>
+      <form method="POST" action="/api/google/create-post">
+        <div class="field-grid">
+          <div class="field">
+            <label>Entreprise cible (${connectedClients.length} connectée(s)) *</label>
+            <select id="post-client-select" name="client_id" required>
+              <option value="">-- Sélectionner le client GBP --</option>
+              ${connectedOptions}
+            </select>
+          </div>
+          <div class="field">
+            <label>Format de publication</label>
+            <select id="post-topic-type" name="topic_type" onchange="togglePostFields()">
+              <option value="STANDARD">📰 Actualité / Reportage Vidéo Heyzine</option>
+              <option value="OFFER">🎁 Offre Spéciale / Promotion</option>
+              <option value="EVENT">📅 Événement / Portes Ouvertes</option>
+            </select>
+          </div>
+          <div class="field"><label>URL photo (vide = photo client)</label><input id="post-media-url" name="media_url" placeholder="https://..."></div>
+          <div class="field" id="action-type-wrap">
+            <label>Bouton d'action</label>
+            <select name="action_type">
+              <option value="LEARN_MORE">En savoir plus (Revue Heyzine)</option>
+              <option value="BOOK">Réserver</option>
+              <option value="CALL">Appeler</option>
+              <option value="SIGN_UP">S'inscrire</option>
+            </select>
+          </div>
+          <div class="field"><label>Lien cible (vide = page Heyzine du client)</label><input id="post-cta-url" name="cta_url" placeholder="https://..."></div>
         </div>
 
-        <div class="panel">
-          <h2>Sécurité • Mot de passe équipe</h2>
-          <form method="POST" action="/api/change-password">
-            <input type="password" name="new_password" placeholder="Nouveau mot de passe (min. 8 car.)" required />
-            <input type="password" name="confirm_password" placeholder="Confirmer le mot de passe" required />
-            <button type="submit" class="btn-gold">Mettre à jour le mot de passe</button>
-          </form>
+        <div id="event-offer-fields" class="field-grid" style="display:none;margin-top:12px;">
+          <div class="field"><label>Titre de l'offre ou de l'événement *</label><input name="event_title" placeholder="Ex: Offre découverte printemps"></div>
+          <div class="field"><label>Date de début</label><input type="date" name="start_date"></div>
+          <div class="field"><label>Date de fin</label><input type="date" name="end_date"></div>
+          <div class="field" id="coupon-field"><label>Code promo (optionnel)</label><input name="coupon_code" placeholder="Ex: PONT20"></div>
         </div>
+
+        <label class="check-row">
+          <input type="checkbox" name="use_client_cover" value="1" checked>
+          Joindre automatiquement la photo de couverture enregistrée de ce client
+        </label>
+
+        <div class="field" style="margin-top:12px;">
+          <label>Texte de la publication Google *</label>
+          <textarea id="post-summary" name="summary" rows="3" required placeholder="Rédige le post ou clique sur ✨ Rédiger avec NyXia..."></textarea>
+        </div>
+        <div class="actions-stack" style="margin-top:12px;">
+          <button type="button" id="btn-nyxia-draft" class="btn-sm btn-gold" style="padding:10px 16px;" onclick="draftPostWithNyxia()">✨ Rédiger avec NyXia</button>
+          <button type="submit" class="btn-primary">Publier sur Google</button>
+        </div>
+      </form>
+    </section>
+
+    <!-- 6. GESTION DES AVIS GOOGLE (PLEINE LARGEUR) -->
+    <section class="admin-card">
+      <h2 class="display" style="font-size:1.75rem;color:#fff;margin-bottom:14px;">Avis Google Clients &amp; Réponses IA en 1 clic</h2>
+      <div class="table-scroll">
+        <table class="pd-table">
+          <thead>
+            <tr>
+              <th>Entreprise &amp; Note</th>
+              <th>Commentaire</th>
+              <th>Réponse publique</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${reviewsRows || '<tr><td colspan="3" style="color:var(--text-muted);text-align:center;padding:18px;">Aucun avis synchronisé. Clique sur « ↻ Sync Avis » sur une fiche connectée.</td></tr>'}
+          </tbody>
+        </table>
       </div>
-    </main>
-  </div>
+    </section>
 
-  <!-- MODALE D'ÉDITION COMPLÈTE D'UN ENTREPRENEUR (DISPOSITION WORKER 2) -->
+    <!-- 7. DEMANDES ENTRANTES HEYZINE & TEST SMS SETTER (PLEINE LARGEUR) -->
+    <section class="admin-card" id="section-sms-test">
+      <h2 class="display" style="font-size:1.75rem;color:#fff;margin-bottom:14px;">Demandes entrantes depuis la Revue Heyzine &amp; Test Alerte SMS</h2>
+      <form method="POST" action="/api/test-nyxia-sms" style="margin-bottom:20px;padding-bottom:18px;border-bottom:1px solid var(--border);">
+        <div class="field-grid">
+          <div class="field"><label>Simuler un lead pour le client *</label><select name="client_id" required>${allClientOptions}</select></div>
+          <div class="field"><label>Nom du prospect test</label><input name="prospect_name" value="Sophie Gagnon" required></div>
+          <div class="field"><label>Contact prospect</label><input name="prospect_contact" value="450-555-0142" required></div>
+          <div class="field"><label>Message du prospect</label><input name="prospect_message" value="Intéressée par vos services suite à la revue Heyzine !" required></div>
+        </div>
+        <div style="margin-top:12px;">
+          <button type="submit" class="btn-sm btn-gold" style="padding:10px 18px;">📱 Simuler un lead &amp; envoyer alerte SMS vers ton cellulaire</button>
+        </div>
+      </form>
+      <div class="table-scroll">
+        <table class="pd-table">
+          <thead>
+            <tr>
+              <th>Prospect</th>
+              <th>Entreprise &amp; Alerte SMS NyXia</th>
+              <th>Suivi Setter</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${leadsRows || '<tr><td colspan="3" style="color:var(--text-muted);text-align:center;padding:18px;">Aucune demande entrante enregistrée.</td></tr>'}
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- 8. SÉCURITÉ ÉQUIPE (PLEINE LARGEUR) -->
+    <section class="admin-card">
+      <h2 class="display" style="font-size:1.5rem;color:var(--gold);margin-bottom:10px;">Sécurité • Mot de passe Associé / Équipe</h2>
+      <p style="color:var(--text-secondary);font-size:.88rem;margin-bottom:14px;">Définis un second mot de passe chiffré dans D1 pour ton associé ou tes setters sans partager ton mot de passe maître Cloudflare.</p>
+      <form method="POST" action="/api/change-password" style="display:flex;gap:12px;flex-wrap:wrap;max-width:680px;">
+        <div class="field" style="flex:1;min-width:200px;">
+          <input type="password" name="new_password" placeholder="Nouveau mot de passe (min. 8 car.)" required>
+        </div>
+        <div class="field" style="flex:1;min-width:200px;">
+          <input type="password" name="confirm_password" placeholder="Confirmer le mot de passe" required>
+        </div>
+        <button type="submit" class="btn-ghost">Enregistrer</button>
+      </form>
+    </section>
+  </main>
+
+  <!-- MODALE ÉDITION CLIENT -->
   <div id="edit-modal" class="modal-backdrop">
     <div class="modal-box">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
-        <h2 style="margin:0;">Modifier la fiche entrepreneur</h2>
-        <button type="button" class="btn-ghost" style="padding:6px 12px;" onclick="closeEditModal()">✕ Fermer</button>
+        <h3 class="display" style="font-size:1.7rem;color:var(--gold);">Modifier la fiche entrepreneur</h3>
+        <button type="button" class="btn-sm btn-ghost" onclick="closeEditModal()">✕ Fermer</button>
       </div>
       <form method="POST" action="/api/clients/update">
-        <input type="hidden" name="client_id" id="edit-client_id" />
+        <input type="hidden" name="client_id" id="edit-client_id">
         <div class="field-grid">
-          <div class="field"><label>Nom de l'entreprise *</label><input type="text" name="business_name" id="edit-business_name" required /></div>
-          <div class="field"><label>Ville / Région *</label><input type="text" name="city" id="edit-city" required /></div>
-          <div class="field"><label>Métier / Spécialité *</label><input type="text" name="category" id="edit-category" required /></div>
-          <div class="field"><label>Téléphone</label><input type="text" name="phone" id="edit-phone" /></div>
-          <div class="field"><label>Courriel vendeur (invitations RDV)</label><input type="email" name="client_email" id="edit-client_email" /></div>
-          <div class="field"><label>Lien Page Réservation Google Workspace</label><input type="url" name="booking_calendar_url" id="edit-booking_calendar_url" /></div>
-          <div class="field"><label>URL Page Heyzine (#page/X)</label><input type="url" name="heyzine_url" id="edit-heyzine_url" /></div>
-          <div class="field"><label>URL Vidéo entrevue</label><input type="url" name="interview_video_url" id="edit-interview_video_url" /></div>
-          <div class="field"><label>URL Photo couverture principale</label><input type="url" name="cover_photo_url" id="edit-cover_photo_url" /></div>
+          <div class="field"><label>Entreprise *</label><input name="business_name" id="edit-business_name" required></div>
+          <div class="field"><label>Ville / Région *</label><input name="city" id="edit-city" required></div>
+          <div class="field"><label>Catégorie *</label><input name="category" id="edit-category" required></div>
+          <div class="field"><label>Téléphone</label><input name="phone" id="edit-phone"></div>
+          <div class="field"><label>Courriel vendeur (invitations RDV)</label><input type="email" name="client_email" id="edit-client_email"></div>
+          <div class="field"><label>Lien Agenda Google Workspace</label><input type="url" name="booking_calendar_url" id="edit-booking_calendar_url"></div>
+          <div class="field"><label>URL Page Heyzine (#page/X)</label><input type="url" name="heyzine_url" id="edit-heyzine_url"></div>
+          <div class="field"><label>URL Vidéo entrevue</label><input type="url" name="interview_video_url" id="edit-interview_video_url"></div>
+          <div class="field"><label>URL Photo couverture principale</label><input type="url" name="cover_photo_url" id="edit-cover_photo_url"></div>
         </div>
-        <div class="field" style="margin-top:4px;"><label>Consignes setters (qualification, secteur, script)</label><input type="text" name="booking_notes" id="edit-booking_notes" /></div>
-        <div class="field"><label>Photos galerie (jusqu'à 5 URLs séparées par virgule)</label><input type="text" name="gallery_urls" id="edit-gallery_urls" /></div>
-        <div style="margin-top:14px;display:flex;justify-content:flex-end;gap:10px;">
+        <div class="field" style="margin-top:12px;"><label>Consignes Setters</label><input name="booking_notes" id="edit-booking_notes"></div>
+        <div class="field" style="margin-top:12px;"><label>Photos galerie (max 5 URLs séparées par virgule)</label><input name="gallery_urls" id="edit-gallery_urls"></div>
+        <div style="margin-top:18px;display:flex;justify-content:flex-end;gap:10px;">
           <button type="button" class="btn-ghost" onclick="closeEditModal()">Annuler</button>
-          <button type="submit" class="btn-primary">Enregistrer les modifications</button>
+          <button type="submit" class="btn-primary">Sauvegarder les modifications</button>
         </div>
       </form>
     </div>
@@ -2170,10 +2203,10 @@ function renderDashboardHTML(clients, recentReviews, recentLeads, recentAppointm
       var type = document.getElementById('post-topic-type').value;
       var box = document.getElementById('event-offer-fields');
       var coupon = document.getElementById('coupon-field');
-      var actionSel = document.getElementById('post-action-type');
-      box.style.display = (type === 'OFFER' || type === 'EVENT') ? 'block' : 'none';
+      var actionWrap = document.getElementById('action-type-wrap');
+      box.style.display = (type === 'OFFER' || type === 'EVENT') ? 'grid' : 'none';
       coupon.style.display = (type === 'OFFER') ? 'block' : 'none';
-      actionSel.style.display = (type === 'OFFER') ? 'none' : 'block';
+      actionWrap.style.display = (type === 'OFFER') ? 'none' : 'block';
     }
 
     async function draftPostWithNyxia() {
