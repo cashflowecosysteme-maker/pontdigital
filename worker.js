@@ -2,10 +2,12 @@
 // PONT DIGITAL — SUPER ADMIN WORKER (CLOUDFLARE WORKERS + D1)
 // Domaine : SuperAdmin-Pontdigital.nyxia.top
 // Base D1 : pont-digital (6686e683-69d3-4044-9566-309480bc949e)
-// Assets  : /images/FavIcon.png, /css/index.css, /js/starry-bg.js
+// Assets  : /images/FavIcon.png (onglet), /images/NyXia.png (avatar),
+//           /css/index.css, /js/starry-bg.js
 // ============================================================================
 
 const FAVICON_URL = '/images/FavIcon.png';
+const NYXIA_AVATAR_URL = '/images/NyXia.png';
 const CSS_URL = '/css/index.css';
 const STARRY_JS_URL = '/js/starry-bg.js';
 
@@ -22,7 +24,6 @@ export default {
       if (env.ASSETS) {
         const assetRes = await env.ASSETS.fetch(request);
         if (assetRes.status !== 404) return assetRes;
-        // Essai automatique dans /public si tes dossiers sont rangés sous public/
         const publicUrl = new URL(request.url);
         publicUrl.pathname = `/public${path}`;
         return env.ASSETS.fetch(new Request(publicUrl.toString(), request));
@@ -715,7 +716,7 @@ function esc(str) {
 }
 
 // ============================================================================
-// INTERFACES HTML (FAVICON + /css/index.css + /js/starry-bg.js + VARIABLES DE REPLI)
+// INTERFACES HTML (/images/FavIcon.png dans l'onglet + /images/NyXia.png visuel)
 // ============================================================================
 function renderHeadAssets(title) {
   return `
@@ -757,7 +758,7 @@ function renderHeadAssets(title) {
       backdrop-filter:blur(14px); background:rgba(6,10,24,.72);
     }
     .brand { display:flex; align-items:center; gap:12px; color:#fff; font-weight:600; }
-    .brand img { width:42px; height:42px; border-radius:50%; object-fit:cover; border:2px solid rgba(123,92,255,.45); box-shadow:0 0 22px rgba(123,92,255,.4); }
+    .brand img { width:44px; height:44px; border-radius:50%; object-fit:cover; border:2px solid rgba(123,92,255,.55); box-shadow:0 0 22px rgba(123,92,255,.45); }
     .brand-name { display:flex; flex-direction:column; line-height:1.1; }
     .brand-name b { font-size:1.05rem; font-weight:700; }
     .brand-name span { font-size:.72rem; color:var(--text-muted); letter-spacing:.5px; text-transform:uppercase; }
@@ -828,7 +829,7 @@ function renderLoginHTML(errorMsg = '') {
   ${renderBackgroundAndScripts()}
   <main style="position:relative;z-index:1;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px;">
     <div class="admin-card" style="width:100%;max-width:440px;text-align:center;padding:36px 28px;">
-      <img src="${FAVICON_URL}" alt="Pont Digital" style="width:74px;height:74px;border-radius:50%;margin:0 auto 16px;border:2px solid var(--gold);box-shadow:0 0 28px rgba(244,200,66,.35);object-fit:cover;">
+      <img src="${NYXIA_AVATAR_URL}" alt="NyXia • Pont Digital" style="width:84px;height:84px;border-radius:50%;margin:0 auto 16px;border:2px solid var(--gold);box-shadow:0 0 30px rgba(244,200,66,.4);object-fit:cover;">
       <span style="font-size:.75rem;letter-spacing:1.5px;text-transform:uppercase;color:var(--gold);font-weight:700;">Agence Pont Digital</span>
       <h1 class="display" style="font-size:2.1rem;margin:6px 0 8px;color:#fff;">Console Super Admin</h1>
       <p style="color:var(--text-secondary);font-size:.9rem;margin-bottom:24px;">Accès réservé à la direction et à l'équipe Appointment Setting.</p>
@@ -1002,7 +1003,7 @@ async function renderDashboardHTML(env) {
 
   <header class="site-header">
     <a href="/" class="brand">
-      <img src="${FAVICON_URL}" alt="Pont Digital">
+      <img src="${NYXIA_AVATAR_URL}" alt="NyXia • Pont Digital">
       <div class="brand-name">
         <b>PONT DIGITAL • SUPER ADMIN</b>
         <span>Gestion Agence, GBP & Appointment Setting</span>
