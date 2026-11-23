@@ -1,4 +1,4 @@
-name = "pont-digital-superadmin"
+name = "pontdigital"
 main = "worker.js"
 compatibility_date = "2026-11-01"
 
@@ -9,7 +9,7 @@ routes = [
 [[d1_databases]]
 binding = "DB"
 database_name = "pont-digital"
-database_id = "COLLE_ICI_TON_DATABASE_ID_D1"
+database_id = "6686e683-69d3-4044-9566-309480bc949e"
 
 [triggers]
 crons = ["0 6 * * *"]
