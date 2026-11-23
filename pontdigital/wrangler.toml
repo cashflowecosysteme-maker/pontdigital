@@ -1,0 +1,17 @@
+name = "pontdigital-public"
+main = "worker.js"
+compatibility_date = "2026-11-01"
+
+routes = [
+  { pattern = "pontdigital.nyxia.top", custom_domain = true }
+]
+
+[assets]
+directory = "./"
+binding = "ASSETS"
+run_worker_first = ["/api/*"]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "pont-digital"
+database_id = "6686e683-69d3-4044-9566-309480bc949e"
