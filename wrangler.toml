@@ -1,0 +1,15 @@
+name = "pont-digital-superadmin"
+main = "worker.js"
+compatibility_date = "2026-11-01"
+
+routes = [
+  { pattern = "SuperAdmin-Pontdigital.nyxia.top", custom_domain = true }
+]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "pont-digital"
+database_id = "COLLE_ICI_TON_DATABASE_ID_D1"
+
+[triggers]
+crons = ["0 6 * * *"]
