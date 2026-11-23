@@ -90,7 +90,7 @@ export default {
     if (!env.DB) return;
     await ensureDatabaseSchema(env.DB);
     const { results: clients } = await env.DB.prepare(
-      "SELECT * FROM clients WHERE google_refresh_token IS NOT NULL AND google_refresh_token != '' AND google_location_name IS NOT NULL AND google_location_name != ''"
+      "SELECT rowid AS id, * FROM clients WHERE google_refresh_token IS NOT NULL AND google_refresh_token != '' AND google_location_name IS NOT NULL AND google_location_name != ''"
     ).all();
 
     for (const client of clients) {
@@ -197,7 +197,6 @@ async function ensureDatabaseSchema(db) {
     `)
   ]);
 
-  // Ajout automatique de toute colonne manquante si une table existait déjà
   const alterStatements = [
     "ALTER TABLE clients ADD COLUMN business_name TEXT DEFAULT ''",
     "ALTER TABLE clients ADD COLUMN owner_name TEXT",
@@ -220,13 +219,26 @@ async function ensureDatabaseSchema(db) {
     "ALTER TABLE clients ADD COLUMN google_access_token TEXT",
     "ALTER TABLE clients ADD COLUMN google_token_expiry INTEGER DEFAULT 0",
     "ALTER TABLE clients ADD COLUMN status TEXT DEFAULT 'actif'",
+    "ALTER TABLE google_reviews ADD COLUMN client_id INTEGER",
+    "ALTER TABLE google_reviews ADD COLUMN google_review_id TEXT",
+    "ALTER TABLE google_reviews ADD COLUMN reviewer_name TEXT",
+    "ALTER TABLE google_reviews ADD COLUMN star_rating INTEGER DEFAULT 5",
+    "ALTER TABLE google_reviews ADD COLUMN comment TEXT",
     "ALTER TABLE google_reviews ADD COLUMN reply_text TEXT",
     "ALTER TABLE google_reviews ADD COLUMN replied_at DATETIME",
     "ALTER TABLE google_reviews ADD COLUMN review_created_at TEXT",
+    "ALTER TABLE appointments ADD COLUMN client_id INTEGER",
+    "ALTER TABLE appointments ADD COLUMN prospect_name TEXT",
     "ALTER TABLE appointments ADD COLUMN prospect_phone TEXT",
     "ALTER TABLE appointments ADD COLUMN prospect_email TEXT",
+    "ALTER TABLE appointments ADD COLUMN appointment_date TEXT",
+    "ALTER TABLE appointments ADD COLUMN appointment_time TEXT",
     "ALTER TABLE appointments ADD COLUMN status TEXT DEFAULT 'confirmé'",
     "ALTER TABLE appointments ADD COLUMN notes TEXT",
+    "ALTER TABLE heyzine_leads ADD COLUMN client_id INTEGER",
+    "ALTER TABLE heyzine_leads ADD COLUMN prospect_name TEXT",
+    "ALTER TABLE heyzine_leads ADD COLUMN prospect_phone TEXT",
+    "ALTER TABLE heyzine_leads ADD COLUMN prospect_email TEXT",
     "ALTER TABLE heyzine_leads ADD COLUMN status TEXT DEFAULT 'nouveau'",
     "ALTER TABLE heyzine_leads ADD COLUMN notes TEXT"
   ];
@@ -237,7 +249,6 @@ async function ensureDatabaseSchema(db) {
     } catch (_) {}
   }
 
-  // Si une ancienne table avait une colonne 'name' au lieu de 'business_name', on copie ses valeurs
   try {
     await db.prepare("UPDATE clients SET business_name = name WHERE (business_name IS NULL OR business_name = '') AND name IS NOT NULL").run();
   } catch (_) {}
@@ -349,11 +360,11 @@ async function handleGoogleOAuthCallback(url, env) {
   const expiry = Date.now() + ((tokenData.expires_in || 3500) * 1000);
   if (tokenData.refresh_token) {
     await env.DB.prepare(
-      "UPDATE clients SET google_access_token = ?, google_refresh_token = ?, google_token_expiry = ? WHERE id = ?"
+      "UPDATE clients SET google_access_token = ?, google_refresh_token = ?, google_token_expiry = ? WHERE rowid = ?"
     ).bind(tokenData.access_token, tokenData.refresh_token, expiry, clientId).run();
   } else {
     await env.DB.prepare(
-      "UPDATE clients SET google_access_token = ?, google_token_expiry = ? WHERE id = ?"
+      "UPDATE clients SET google_access_token = ?, google_token_expiry = ? WHERE rowid = ?"
     ).bind(tokenData.access_token, expiry, clientId).run();
   }
 
@@ -388,7 +399,7 @@ async function handleGoogleOAuthCallback(url, env) {
   if (locations.length === 1) {
     const only = locations[0];
     await env.DB.prepare(
-      "UPDATE clients SET google_account_name = ?, google_location_name = ?, google_place_id = COALESCE(NULLIF(?, ''), google_place_id) WHERE id = ?"
+      "UPDATE clients SET google_account_name = ?, google_location_name = ?, google_place_id = COALESCE(NULLIF(?, ''), google_place_id) WHERE rowid = ?"
     ).bind(only.accountName, only.locationName, only.placeId, clientId).run();
     return Response.redirect(`${url.origin}/?gbp_connected=1`, 302);
   }
@@ -406,7 +417,7 @@ async function handleGoogleSelectLocation(request, env) {
 
   if (clientId && accountName && locationName) {
     await env.DB.prepare(
-      "UPDATE clients SET google_account_name = ?, google_location_name = ?, google_place_id = COALESCE(NULLIF(?, ''), google_place_id) WHERE id = ?"
+      "UPDATE clients SET google_account_name = ?, google_location_name = ?, google_place_id = COALESCE(NULLIF(?, ''), google_place_id) WHERE rowid = ?"
     ).bind(accountName, locationName, placeId || '', clientId).run();
   }
 
@@ -437,7 +448,7 @@ async function getValidGoogleAccessToken(env, client) {
   }
   const expiry = Date.now() + ((data.expires_in || 3500) * 1000);
   await env.DB.prepare(
-    "UPDATE clients SET google_access_token = ?, google_token_expiry = ? WHERE id = ?"
+    "UPDATE clients SET google_access_token = ?, google_token_expiry = ? WHERE rowid = ?"
   ).bind(data.access_token, expiry, client.id).run();
   return data.access_token;
 }
@@ -520,7 +531,7 @@ async function handleApiRequest(request, env, path, url) {
           category = ?, website_url = ?, booking_calendar_url = ?, booking_notes = ?,
           logo_url = ?, gallery_urls = ?, heyzine_page = ?, youtube_video_id = ?,
           google_place_id = ?, status = ?
-        WHERE id = ?
+        WHERE rowid = ?
       `).bind(
         b.business_name, b.owner_name || '', b.email || '', b.phone || '',
         b.city || '', b.region || '', b.category || '', b.website_url || '',
@@ -533,13 +544,13 @@ async function handleApiRequest(request, env, path, url) {
 
     if (path === '/api/clients/delete' && request.method === 'POST') {
       const { id } = await request.json();
-      await env.DB.prepare("DELETE FROM clients WHERE id = ?").bind(id).run();
+      await env.DB.prepare("DELETE FROM clients WHERE rowid = ?").bind(id).run();
       return jsonOK({ message: 'Client supprimé.' });
     }
 
     if (path === '/api/gbp/sync-reviews' && request.method === 'POST') {
       const { client_id } = await request.json();
-      const client = await env.DB.prepare("SELECT * FROM clients WHERE id = ?").bind(client_id).first();
+      const client = await env.DB.prepare("SELECT rowid AS id, * FROM clients WHERE rowid = ?").bind(client_id).first();
       if (!client || !client.google_location_name) {
         return jsonErr('Connecte d’abord la fiche Google Business Profile de ce client.');
       }
@@ -549,9 +560,9 @@ async function handleApiRequest(request, env, path, url) {
 
     if (path === '/api/gbp/reply-review' && request.method === 'POST') {
       const { review_id, reply_text } = await request.json();
-      const rev = await env.DB.prepare("SELECT * FROM google_reviews WHERE id = ?").bind(review_id).first();
+      const rev = await env.DB.prepare("SELECT rowid AS id, * FROM google_reviews WHERE rowid = ?").bind(review_id).first();
       if (!rev) return jsonErr('Avis introuvable.');
-      const client = await env.DB.prepare("SELECT * FROM clients WHERE id = ?").bind(rev.client_id).first();
+      const client = await env.DB.prepare("SELECT rowid AS id, * FROM clients WHERE rowid = ?").bind(rev.client_id).first();
       if (!client || !client.google_location_name) return jsonErr('Fiche Google non connectée.');
 
       const token = await getValidGoogleAccessToken(env, client);
@@ -569,14 +580,14 @@ async function handleApiRequest(request, env, path, url) {
         return jsonErr(`Erreur Google API : ${errData.error?.message || JSON.stringify(errData)}`);
       }
       await env.DB.prepare(
-        "UPDATE google_reviews SET reply_text = ?, replied_at = CURRENT_TIMESTAMP WHERE id = ?"
+        "UPDATE google_reviews SET reply_text = ?, replied_at = CURRENT_TIMESTAMP WHERE rowid = ?"
       ).bind(reply_text, review_id).run();
       return jsonOK({ message: 'Réponse publiée sur Google !' });
     }
 
     if (path === '/api/gbp/create-post' && request.method === 'POST') {
       const { client_id, summary, media_url, cta_type, cta_url } = await request.json();
-      const client = await env.DB.prepare("SELECT * FROM clients WHERE id = ?").bind(client_id).first();
+      const client = await env.DB.prepare("SELECT rowid AS id, * FROM clients WHERE rowid = ?").bind(client_id).first();
       if (!client || !client.google_location_name) {
         return jsonErr('Connecte d’abord la fiche Google Business Profile de ce client.');
       }
@@ -662,7 +673,7 @@ async function handleApiRequest(request, env, path, url) {
         b.appointment_date, b.appointment_time, b.status || 'confirmé', b.notes || ''
       ).run();
 
-      const client = await env.DB.prepare("SELECT business_name FROM clients WHERE id = ?").bind(b.client_id).first();
+      const client = await env.DB.prepare("SELECT business_name FROM clients WHERE rowid = ?").bind(b.client_id).first();
       await sendSetterSms(
         env,
         `Pont Digital — Nouveau RDV booké pour ${client?.business_name || 'Client'} : ${b.prospect_name} (${b.prospect_phone || 'sans tél'}) le ${b.appointment_date} à ${b.appointment_time}.`
@@ -672,13 +683,13 @@ async function handleApiRequest(request, env, path, url) {
 
     if (path === '/api/appointments/delete' && request.method === 'POST') {
       const { id } = await request.json();
-      await env.DB.prepare("DELETE FROM appointments WHERE id = ?").bind(id).run();
+      await env.DB.prepare("DELETE FROM appointments WHERE rowid = ?").bind(id).run();
       return jsonOK({ message: 'Rendez-vous retiré.' });
     }
 
     if (path === '/api/leads/status' && request.method === 'POST') {
       const { id, status } = await request.json();
-      await env.DB.prepare("UPDATE heyzine_leads SET status = ? WHERE id = ?").bind(status, id).run();
+      await env.DB.prepare("UPDATE heyzine_leads SET status = ? WHERE rowid = ?").bind(status, id).run();
       return jsonOK({ message: 'Statut du prospect mis à jour.' });
     }
 
@@ -943,30 +954,30 @@ function renderSelectLocationHTML(clientId, locations) {
 }
 
 async function renderDashboardHTML(env) {
-  const clientsRes = await env.DB.prepare("SELECT * FROM clients ORDER BY id DESC").all();
+  const clientsRes = await env.DB.prepare("SELECT rowid AS id, * FROM clients ORDER BY rowid DESC").all();
   const clients = clientsRes.results || [];
 
   const reviewsRes = await env.DB.prepare(`
-    SELECT r.*, c.business_name, c.category, c.city
+    SELECT r.rowid AS id, r.*, c.business_name, c.category, c.city
     FROM google_reviews r
-    LEFT JOIN clients c ON c.id = r.client_id
-    ORDER BY r.id DESC LIMIT 40
+    LEFT JOIN clients c ON c.rowid = r.client_id
+    ORDER BY r.rowid DESC LIMIT 40
   `).all();
   const reviews = reviewsRes.results || [];
 
   const apptRes = await env.DB.prepare(`
-    SELECT a.*, c.business_name
+    SELECT a.rowid AS id, a.*, c.business_name
     FROM appointments a
-    LEFT JOIN clients c ON c.id = a.client_id
-    ORDER BY a.id DESC LIMIT 30
+    LEFT JOIN clients c ON c.rowid = a.client_id
+    ORDER BY a.rowid DESC LIMIT 30
   `).all();
   const appointments = apptRes.results || [];
 
   const leadsRes = await env.DB.prepare(`
-    SELECT l.*, c.business_name
+    SELECT l.rowid AS id, l.*, c.business_name
     FROM heyzine_leads l
-    LEFT JOIN clients c ON c.id = l.client_id
-    ORDER BY l.id DESC LIMIT 30
+    LEFT JOIN clients c ON c.rowid = l.client_id
+    ORDER BY l.rowid DESC LIMIT 30
   `).all();
   const leads = leadsRes.results || [];
 
