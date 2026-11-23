@@ -13,76 +13,81 @@ const STARRY_JS_URL = '/js/starry-bg.js';
 
 export default {
   async fetch(request, env, ctx) {
-    const url = new URL(request.url);
-    const path = url.pathname;
-
-    // 1. Servir les fichiers statiques (/images/*, /css/*, /js/*) et le favicon
-    if (path === '/favicon.ico') {
-      return Response.redirect(`${url.origin}${FAVICON_URL}`, 302);
-    }
-    if (path.startsWith('/images/') || path.startsWith('/css/') || path.startsWith('/js/')) {
-      if (env.ASSETS) {
-        const assetRes = await env.ASSETS.fetch(request);
-        if (assetRes.status !== 404) return assetRes;
-        const publicUrl = new URL(request.url);
-        publicUrl.pathname = `/public${path}`;
-        return env.ASSETS.fetch(new Request(publicUrl.toString(), request));
-      }
-    }
-
-    // 2. Auto-migration sécurisée de la base de données D1
     try {
-      await ensureDatabaseSchema(env.DB);
-    } catch (e) {
-      return new Response(`Erreur initialisation DB D1 : ${e.message}`, { status: 500 });
-    }
+      const url = new URL(request.url);
+      const path = url.pathname;
 
-    // 3. Routes publiques d'authentification
-    if (path === '/login' && request.method === 'POST') {
-      return handleLogin(request, env);
-    }
-    if (path === '/logout') {
-      return new Response(null, {
-        status: 302,
-        headers: {
-          'Location': '/',
-          'Set-Cookie': 'pd_admin_session=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0'
+      // 1. Servir les fichiers statiques (/images/*, /css/*, /js/*) et le favicon
+      if (path === '/favicon.ico') {
+        return Response.redirect(`${url.origin}${FAVICON_URL}`, 302);
+      }
+      if (path.startsWith('/images/') || path.startsWith('/css/') || path.startsWith('/js/')) {
+        if (env.ASSETS) {
+          const assetRes = await env.ASSETS.fetch(request);
+          if (assetRes.status !== 404) return assetRes;
+          const publicUrl = new URL(request.url);
+          publicUrl.pathname = `/public${path}`;
+          return env.ASSETS.fetch(new Request(publicUrl.toString(), request));
         }
-      });
-    }
+      }
 
-    // 4. Vérification de la session Super Admin
-    const isAuthenticated = await verifySession(request, env);
-    if (!isAuthenticated) {
-      return new Response(renderLoginHTML(), {
+      // 2. Vérification de la liaison D1 et migration complète du schéma
+      if (!env.DB) {
+        return renderErrorHTML('Liaison D1 manquante', 'La base de données DB (pont-digital) n’est pas liée à ce Worker dans Cloudflare.');
+      }
+      await ensureDatabaseSchema(env.DB);
+
+      // 3. Routes publiques d'authentification
+      if (path === '/login' && request.method === 'POST') {
+        return await handleLogin(request, env);
+      }
+      if (path === '/logout') {
+        return new Response(null, {
+          status: 302,
+          headers: {
+            'Location': '/',
+            'Set-Cookie': 'pd_admin_session=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0'
+          }
+        });
+      }
+
+      // 4. Vérification de la session Super Admin
+      const isAuthenticated = await verifySession(request, env);
+      if (!isAuthenticated) {
+        return new Response(renderLoginHTML(), {
+          headers: { 'Content-Type': 'text/html; charset=utf-8' }
+        });
+      }
+
+      // 5. Routes OAuth 2.0 Google Business Profile
+      if (path === '/oauth/google/start') {
+        return handleGoogleOAuthStart(url, env);
+      }
+      if (path === '/oauth/google/callback') {
+        return await handleGoogleOAuthCallback(url, env);
+      }
+      if (path === '/oauth/google/select-location' && request.method === 'POST') {
+        return await handleGoogleSelectLocation(request, env);
+      }
+
+      // 6. Routes API JSON (AJAX depuis le tableau de bord)
+      if (path.startsWith('/api/')) {
+        return await handleApiRequest(request, env, path, url);
+      }
+
+      // 7. Page principale du Super Admin
+      const dashboardHtml = await renderDashboardHTML(env);
+      return new Response(dashboardHtml, {
         headers: { 'Content-Type': 'text/html; charset=utf-8' }
       });
+    } catch (err) {
+      return renderErrorHTML('Erreur technique interceptée', `${err.message}\n\n${err.stack || ''}`);
     }
-
-    // 5. Routes OAuth 2.0 Google Business Profile
-    if (path === '/oauth/google/start') {
-      return handleGoogleOAuthStart(url, env);
-    }
-    if (path === '/oauth/google/callback') {
-      return handleGoogleOAuthCallback(url, env);
-    }
-    if (path === '/oauth/google/select-location' && request.method === 'POST') {
-      return handleGoogleSelectLocation(request, env);
-    }
-
-    // 6. Routes API JSON (AJAX depuis le tableau de bord)
-    if (path.startsWith('/api/')) {
-      return handleApiRequest(request, env, path, url);
-    }
-
-    // 7. Page principale du Super Admin
-    return new Response(await renderDashboardHTML(env), {
-      headers: { 'Content-Type': 'text/html; charset=utf-8' }
-    });
   },
 
   // Tâche planifiée quotidienne (6h00 UTC) : synchronisation automatique des avis Google
   async scheduled(event, env, ctx) {
+    if (!env.DB) return;
     await ensureDatabaseSchema(env.DB);
     const { results: clients } = await env.DB.prepare(
       "SELECT * FROM clients WHERE google_refresh_token IS NOT NULL AND google_refresh_token != '' AND google_location_name IS NOT NULL AND google_location_name != ''"
@@ -99,7 +104,7 @@ export default {
 };
 
 // ============================================================================
-// BASE DE DONNÉES D1 : CRÉATION ET MIGRATION AUTOMATIQUE
+// BASE DE DONNÉES D1 : CRÉATION ET MIGRATION COMPLÈTE DES COLONNES
 // ============================================================================
 async function ensureDatabaseSchema(db) {
   await db.batch([
@@ -112,7 +117,7 @@ async function ensureDatabaseSchema(db) {
     db.prepare(`
       CREATE TABLE IF NOT EXISTS clients (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        business_name TEXT NOT NULL,
+        business_name TEXT NOT NULL DEFAULT '',
         owner_name TEXT,
         email TEXT,
         phone TEXT,
@@ -192,17 +197,50 @@ async function ensureDatabaseSchema(db) {
     `)
   ]);
 
-  const alterColumns = [
+  // Ajout automatique de toute colonne manquante si une table existait déjà
+  const alterStatements = [
+    "ALTER TABLE clients ADD COLUMN business_name TEXT DEFAULT ''",
+    "ALTER TABLE clients ADD COLUMN owner_name TEXT",
+    "ALTER TABLE clients ADD COLUMN email TEXT",
+    "ALTER TABLE clients ADD COLUMN phone TEXT",
+    "ALTER TABLE clients ADD COLUMN city TEXT",
+    "ALTER TABLE clients ADD COLUMN region TEXT",
+    "ALTER TABLE clients ADD COLUMN category TEXT",
+    "ALTER TABLE clients ADD COLUMN website_url TEXT",
     "ALTER TABLE clients ADD COLUMN booking_calendar_url TEXT",
     "ALTER TABLE clients ADD COLUMN booking_notes TEXT",
     "ALTER TABLE clients ADD COLUMN logo_url TEXT",
-    "ALTER TABLE clients ADD COLUMN gallery_urls TEXT"
+    "ALTER TABLE clients ADD COLUMN gallery_urls TEXT",
+    "ALTER TABLE clients ADD COLUMN heyzine_page INTEGER DEFAULT 1",
+    "ALTER TABLE clients ADD COLUMN youtube_video_id TEXT",
+    "ALTER TABLE clients ADD COLUMN google_place_id TEXT",
+    "ALTER TABLE clients ADD COLUMN google_account_name TEXT",
+    "ALTER TABLE clients ADD COLUMN google_location_name TEXT",
+    "ALTER TABLE clients ADD COLUMN google_refresh_token TEXT",
+    "ALTER TABLE clients ADD COLUMN google_access_token TEXT",
+    "ALTER TABLE clients ADD COLUMN google_token_expiry INTEGER DEFAULT 0",
+    "ALTER TABLE clients ADD COLUMN status TEXT DEFAULT 'actif'",
+    "ALTER TABLE google_reviews ADD COLUMN reply_text TEXT",
+    "ALTER TABLE google_reviews ADD COLUMN replied_at DATETIME",
+    "ALTER TABLE google_reviews ADD COLUMN review_created_at TEXT",
+    "ALTER TABLE appointments ADD COLUMN prospect_phone TEXT",
+    "ALTER TABLE appointments ADD COLUMN prospect_email TEXT",
+    "ALTER TABLE appointments ADD COLUMN status TEXT DEFAULT 'confirmé'",
+    "ALTER TABLE appointments ADD COLUMN notes TEXT",
+    "ALTER TABLE heyzine_leads ADD COLUMN status TEXT DEFAULT 'nouveau'",
+    "ALTER TABLE heyzine_leads ADD COLUMN notes TEXT"
   ];
-  for (const sql of alterColumns) {
+
+  for (const sql of alterStatements) {
     try {
       await db.prepare(sql).run();
     } catch (_) {}
   }
+
+  // Si une ancienne table avait une colonne 'name' au lieu de 'business_name', on copie ses valeurs
+  try {
+    await db.prepare("UPDATE clients SET business_name = name WHERE (business_name IS NULL OR business_name = '') AND name IS NOT NULL").run();
+  } catch (_) {}
 }
 
 // ============================================================================
@@ -266,7 +304,7 @@ function handleGoogleOAuthStart(url, env) {
   const clientId = url.searchParams.get('client_id');
   if (!clientId) return new Response('client_id manquant', { status: 400 });
   if (!env.GOOGLE_CLIENT_ID) {
-    return new Response('Variable GOOGLE_CLIENT_ID manquante dans Cloudflare.', { status: 500 });
+    return renderErrorHTML('Variable manquante', 'La variable GOOGLE_CLIENT_ID est manquante dans Cloudflare.');
   }
 
   const redirectUri = `${url.origin}/oauth/google/callback`;
@@ -287,8 +325,8 @@ async function handleGoogleOAuthCallback(url, env) {
   const clientId = url.searchParams.get('state');
   const error = url.searchParams.get('error');
 
-  if (error) return new Response(`Erreur Google OAuth : ${error}`, { status: 400 });
-  if (!code || !clientId) return new Response('Paramètres OAuth incomplets.', { status: 400 });
+  if (error) return renderErrorHTML('Erreur Google OAuth', error);
+  if (!code || !clientId) return renderErrorHTML('Paramètres OAuth incomplets', 'Code ou client_id manquant.');
 
   const redirectUri = `${url.origin}/oauth/google/callback`;
   const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
@@ -305,7 +343,7 @@ async function handleGoogleOAuthCallback(url, env) {
 
   const tokenData = await tokenRes.json();
   if (!tokenRes.ok || !tokenData.access_token) {
-    return new Response(`Échec échange token Google : ${JSON.stringify(tokenData)}`, { status: 400 });
+    return renderErrorHTML('Échec échange token Google', JSON.stringify(tokenData, null, 2));
   }
 
   const expiry = Date.now() + ((tokenData.expires_in || 3500) * 1000);
@@ -819,6 +857,26 @@ function renderBackgroundAndScripts() {
   <script src="${STARRY_JS_URL}" defer></script>`;
 }
 
+function renderErrorHTML(title, details) {
+  return new Response(`<!DOCTYPE html>
+<html lang="fr">
+<head>${renderHeadAssets(title)}</head>
+<body>
+  ${renderBackgroundAndScripts()}
+  <main style="position:relative;z-index:1;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px;">
+    <div class="admin-card" style="width:100%;max-width:620px;padding:32px;">
+      <h1 class="display" style="font-size:1.8rem;color:var(--gold);margin-bottom:10px;">${esc(title)}</h1>
+      <pre style="white-space:pre-wrap;background:rgba(6,10,24,.9);border:1px solid var(--border);padding:14px;border-radius:10px;color:#fecaca;font-size:.82rem;margin-bottom:18px;">${esc(details)}</pre>
+      <a href="/" class="btn-primary">Recharger la console</a>
+    </div>
+  </main>
+</body>
+</html>`, {
+    status: 500,
+    headers: { 'Content-Type': 'text/html; charset=utf-8' }
+  });
+}
+
 function renderLoginHTML(errorMsg = '') {
   return `<!DOCTYPE html>
 <html lang="fr">
@@ -885,33 +943,41 @@ function renderSelectLocationHTML(clientId, locations) {
 }
 
 async function renderDashboardHTML(env) {
-  const { results: clients } = await env.DB.prepare("SELECT * FROM clients ORDER BY id DESC").all();
-  const { results: reviews } = await env.DB.prepare(`
+  const clientsRes = await env.DB.prepare("SELECT * FROM clients ORDER BY id DESC").all();
+  const clients = clientsRes.results || [];
+
+  const reviewsRes = await env.DB.prepare(`
     SELECT r.*, c.business_name, c.category, c.city
     FROM google_reviews r
     LEFT JOIN clients c ON c.id = r.client_id
     ORDER BY r.id DESC LIMIT 40
   `).all();
-  const { results: appointments } = await env.DB.prepare(`
+  const reviews = reviewsRes.results || [];
+
+  const apptRes = await env.DB.prepare(`
     SELECT a.*, c.business_name
     FROM appointments a
     LEFT JOIN clients c ON c.id = a.client_id
-    ORDER BY a.appointment_date DESC, a.appointment_time DESC LIMIT 30
+    ORDER BY a.id DESC LIMIT 30
   `).all();
-  const { results: leads } = await env.DB.prepare(`
+  const appointments = apptRes.results || [];
+
+  const leadsRes = await env.DB.prepare(`
     SELECT l.*, c.business_name
     FROM heyzine_leads l
     LEFT JOIN clients c ON c.id = l.client_id
     ORDER BY l.id DESC LIMIT 30
   `).all();
+  const leads = leadsRes.results || [];
 
   const gbpConnectedCount = clients.filter(c => c.google_location_name).length;
   const bookingReadyCount = clients.filter(c => c.booking_calendar_url).length;
   const pendingReviewsCount = reviews.filter(r => !r.reply_text).length;
 
-  const clientOptions = clients.map(c => `<option value="${c.id}">${esc(c.business_name)}</option>`).join('');
+  const clientOptions = clients.map(c => `<option value="${c.id}">${esc(c.business_name || c.name || 'Client #' + c.id)}</option>`).join('');
 
   const clientsRows = clients.map(c => {
+    const bizName = c.business_name || c.name || 'Entreprise';
     const isGbp = Boolean(c.google_location_name);
     const hasCal = Boolean(c.booking_calendar_url);
     let photosCount = 0;
@@ -923,7 +989,7 @@ async function renderDashboardHTML(env) {
           <div style="display:flex;align-items:center;gap:10px;">
             ${c.logo_url ? `<img src="${esc(c.logo_url)}" alt="" style="width:38px;height:38px;border-radius:10px;object-fit:cover;border:1px solid var(--border);">` : ''}
             <div>
-              <strong style="color:#fff;font-size:.96rem;">${esc(c.business_name)}</strong>
+              <strong style="color:#fff;font-size:.96rem;">${esc(bizName)}</strong>
               <div style="font-size:.8rem;color:var(--text-muted);">${esc(c.category || 'Entreprise locale')} • ${esc(c.city || 'Québec')}</div>
               <div style="font-size:.76rem;color:var(--text-secondary);">Page revue #${c.heyzine_page || 1} • ${photosCount} photo(s) galerie</div>
             </div>
@@ -948,7 +1014,7 @@ async function renderDashboardHTML(env) {
           <div class="actions-stack">
             <button class="btn-sm btn-ghost" onclick='openEditModal(${JSON.stringify(c).replace(/'/g, "&#39;")})'>✏️ Modifier</button>
             ${isGbp ? `<button class="btn-sm btn-gold" onclick="syncReviews(${c.id})">↻ Sync Avis</button>` : ''}
-            <button class="btn-sm btn-danger" onclick="deleteClient(${c.id}, '${esc(c.business_name)}')">🗑️</button>
+            <button class="btn-sm btn-danger" onclick="deleteClient(${c.id}, '${esc(bizName)}')">🗑️</button>
           </div>
         </td>
       </tr>
@@ -1259,7 +1325,7 @@ async function renderDashboardHTML(env) {
 
     function openEditModal(c) {
       document.getElementById('edit-id').value = c.id;
-      document.getElementById('edit-business_name').value = c.business_name || '';
+      document.getElementById('edit-business_name').value = c.business_name || c.name || '';
       document.getElementById('edit-owner_name').value = c.owner_name || '';
       document.getElementById('edit-city').value = c.city || '';
       document.getElementById('edit-region').value = c.region || '';
