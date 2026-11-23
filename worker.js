@@ -2,25 +2,30 @@
 // PONT DIGITAL — SUPER ADMIN WORKER (CLOUDFLARE WORKERS + D1)
 // Domaine : SuperAdmin-Pontdigital.nyxia.top
 // Base D1 : pont-digital (6686e683-69d3-4044-9566-309480bc949e)
-// Assets  : /images/FavIcon.png & /css/index.css
+// Assets  : /images/FavIcon.png, /css/index.css, /js/starry-bg.js
 // ============================================================================
 
 const FAVICON_URL = '/images/FavIcon.png';
 const CSS_URL = '/css/index.css';
-const NYXIA_AVATAR_URL = 'https://nyxia.top/images/nyxia-avatar.png';
+const STARRY_JS_URL = '/js/starry-bg.js';
 
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
     const path = url.pathname;
 
-    // 1. Servir les fichiers statiques (/images/*, /css/*) et le favicon
+    // 1. Servir les fichiers statiques (/images/*, /css/*, /js/*) et le favicon
     if (path === '/favicon.ico') {
       return Response.redirect(`${url.origin}${FAVICON_URL}`, 302);
     }
-    if (path.startsWith('/images/') || path.startsWith('/css/')) {
+    if (path.startsWith('/images/') || path.startsWith('/css/') || path.startsWith('/js/')) {
       if (env.ASSETS) {
-        return env.ASSETS.fetch(request);
+        const assetRes = await env.ASSETS.fetch(request);
+        if (assetRes.status !== 404) return assetRes;
+        // Essai automatique dans /public si tes dossiers sont rangés sous public/
+        const publicUrl = new URL(request.url);
+        publicUrl.pathname = `/public${path}`;
+        return env.ASSETS.fetch(new Request(publicUrl.toString(), request));
       }
     }
 
@@ -186,7 +191,6 @@ async function ensureDatabaseSchema(db) {
     `)
   ]);
 
-  // Ajout sécurisé des colonnes si la table clients existait déjà
   const alterColumns = [
     "ALTER TABLE clients ADD COLUMN booking_calendar_url TEXT",
     "ALTER TABLE clients ADD COLUMN booking_notes TEXT",
@@ -196,9 +200,7 @@ async function ensureDatabaseSchema(db) {
   for (const sql of alterColumns) {
     try {
       await db.prepare(sql).run();
-    } catch (_) {
-      // Colonne déjà présente
-    }
+    } catch (_) {}
   }
 }
 
@@ -284,12 +286,8 @@ async function handleGoogleOAuthCallback(url, env) {
   const clientId = url.searchParams.get('state');
   const error = url.searchParams.get('error');
 
-  if (error) {
-    return new Response(`Erreur Google OAuth : ${error}`, { status: 400 });
-  }
-  if (!code || !clientId) {
-    return new Response('Paramètres OAuth incomplets.', { status: 400 });
-  }
+  if (error) return new Response(`Erreur Google OAuth : ${error}`, { status: 400 });
+  if (!code || !clientId) return new Response('Paramètres OAuth incomplets.', { status: 400 });
 
   const redirectUri = `${url.origin}/oauth/google/callback`;
   const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
@@ -320,7 +318,6 @@ async function handleGoogleOAuthCallback(url, env) {
     ).bind(tokenData.access_token, expiry, clientId).run();
   }
 
-  // Lister les comptes et fiches Google Business Profile accessibles
   const locations = [];
   try {
     const accRes = await fetch('https://mybusinessaccountmanagement.googleapis.com/v1/accounts', {
@@ -455,7 +452,6 @@ async function syncClientReviews(env, client) {
 // ============================================================================
 async function handleApiRequest(request, env, path, url) {
   try {
-    // --- CLIENTS ---
     if (path === '/api/clients' && request.method === 'POST') {
       const b = await request.json();
       const galleryJson = JSON.stringify((b.gallery_urls || []).filter(Boolean).slice(0, 5));
@@ -502,7 +498,6 @@ async function handleApiRequest(request, env, path, url) {
       return jsonOK({ message: 'Client supprimé.' });
     }
 
-    // --- SYNCHRONISATION & RÉPONSE AVIS GOOGLE ---
     if (path === '/api/gbp/sync-reviews' && request.method === 'POST') {
       const { client_id } = await request.json();
       const client = await env.DB.prepare("SELECT * FROM clients WHERE id = ?").bind(client_id).first();
@@ -540,7 +535,6 @@ async function handleApiRequest(request, env, path, url) {
       return jsonOK({ message: 'Réponse publiée sur Google !' });
     }
 
-    // --- PUBLICATION GOOGLE POSTS ---
     if (path === '/api/gbp/create-post' && request.method === 'POST') {
       const { client_id, summary, media_url, cta_type, cta_url } = await request.json();
       const client = await env.DB.prepare("SELECT * FROM clients WHERE id = ?").bind(client_id).first();
@@ -584,7 +578,6 @@ async function handleApiRequest(request, env, path, url) {
       return jsonOK({ message: 'Google Post publié avec succès !' });
     }
 
-    // --- GÉNÉRATION IA NYXIA (OPENROUTER) ---
     if (path === '/api/ai/generate' && request.method === 'POST') {
       const { mode, business_name, category, city, context_text } = await request.json();
       if (!env.OPENROUTER_API_KEY) {
@@ -620,7 +613,6 @@ async function handleApiRequest(request, env, path, url) {
       return jsonOK({ text: generated });
     }
 
-    // --- APPOINTMENT SETTING : AJOUTER UN RENDEZ-VOUS & ALERTE SMS ---
     if (path === '/api/appointments' && request.method === 'POST') {
       const b = await request.json();
       await env.DB.prepare(`
@@ -645,21 +637,18 @@ async function handleApiRequest(request, env, path, url) {
       return jsonOK({ message: 'Rendez-vous retiré.' });
     }
 
-    // --- LEADS HEYZINE / PODCAST ---
     if (path === '/api/leads/status' && request.method === 'POST') {
       const { id, status } = await request.json();
       await env.DB.prepare("UPDATE heyzine_leads SET status = ? WHERE id = ?").bind(status, id).run();
       return jsonOK({ message: 'Statut du prospect mis à jour.' });
     }
 
-    // --- TEST SMS SETTER TWILIO ---
     if (path === '/api/sms/test' && request.method === 'POST') {
       const sent = await sendSetterSms(env, 'Pont Digital : Test réussi ! Ton alerte SMS Appointment Setter est active.');
       if (!sent.ok) return jsonErr(sent.error);
       return jsonOK({ message: 'SMS de test envoyé sur ton téléphone !' });
     }
 
-    // --- MOT DE PASSE ÉQUIPE ---
     if (path === '/api/settings/team-password' && request.method === 'POST') {
       const { new_password } = await request.json();
       if (!new_password || new_password.length < 6) {
@@ -726,7 +715,7 @@ function esc(str) {
 }
 
 // ============================================================================
-// INTERFACES HTML (BRANCHÉES SUR /css/index.css ET /images/FavIcon.png)
+// INTERFACES HTML (FAVICON + /css/index.css + /js/starry-bg.js + VARIABLES DE REPLI)
 // ============================================================================
 function renderHeadAssets(title) {
   return `
@@ -740,6 +729,52 @@ function renderHeadAssets(title) {
   <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@600;700&family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="${CSS_URL}">
   <style>
+    :root {
+      --bg-deep:#060a18; --bg-card:#0e1430; --bg-card-hover:#141b3d;
+      --primary:#7B5CFF; --secondary:#5A6CFF; --primary-light:#a78bfa; --blue:#4FA3FF;
+      --primary-glow:rgba(123,92,255,.35); --gold:#F4C842; --green:#34d399;
+      --text:#f1f0ff; --text-secondary:#b9b3d6; --text-muted:#7c73a0;
+      --border:rgba(123,92,255,.18); --radius:18px; --radius-sm:11px;
+      --shadow-glow:0 16px 48px rgba(123,92,255,.16);
+      --transition:.3s cubic-bezier(.4,0,.2,1);
+    }
+    *,*::before,*::after { margin:0; padding:0; box-sizing:border-box; }
+    body { font-family:Outfit,-apple-system,BlinkMacSystemFont,sans-serif; background:var(--bg-deep); color:var(--text); line-height:1.6; min-height:100vh; overflow-x:hidden; }
+    a { color:var(--primary-light); text-decoration:none; }
+    button { cursor:pointer; font-family:inherit; border:none; outline:none; color:inherit; }
+    .display { font-family:'Cormorant Garamond',Georgia,serif; font-weight:700; letter-spacing:.3px; }
+    #starry-canvas { position:fixed; inset:0; z-index:0; pointer-events:none; }
+    .aura {
+      position:fixed; inset:0; z-index:0; pointer-events:none;
+      background:
+        radial-gradient(60% 40% at 80% 6%,rgba(123,92,255,.2),transparent 60%),
+        radial-gradient(50% 40% at 10% 24%,rgba(79,163,255,.12),transparent 60%),
+        radial-gradient(70% 50% at 50% 112%,rgba(244,200,66,.06),transparent 60%);
+    }
+    .site-header {
+      position:sticky; top:0; z-index:20; display:flex; align-items:center; justify-content:space-between; gap:16px;
+      padding:14px clamp(16px,4vw,34px); border-bottom:1px solid rgba(123,92,255,.14);
+      backdrop-filter:blur(14px); background:rgba(6,10,24,.72);
+    }
+    .brand { display:flex; align-items:center; gap:12px; color:#fff; font-weight:600; }
+    .brand img { width:42px; height:42px; border-radius:50%; object-fit:cover; border:2px solid rgba(123,92,255,.45); box-shadow:0 0 22px rgba(123,92,255,.4); }
+    .brand-name { display:flex; flex-direction:column; line-height:1.1; }
+    .brand-name b { font-size:1.05rem; font-weight:700; }
+    .brand-name span { font-size:.72rem; color:var(--text-muted); letter-spacing:.5px; text-transform:uppercase; }
+    .header-right { display:flex; align-items:center; gap:12px; flex-wrap:wrap; }
+    .btn-primary {
+      padding:10px 22px; border-radius:var(--radius-sm);
+      background:linear-gradient(135deg,var(--primary),var(--secondary));
+      color:#fff; font-size:.875rem; font-weight:600; white-space:nowrap;
+      box-shadow:0 4px 16px var(--primary-glow); transition:transform var(--transition),box-shadow var(--transition);
+    }
+    .btn-primary:hover { transform:translateY(-1px); box-shadow:0 6px 26px var(--primary-glow); color:#fff; }
+    .btn-ghost {
+      padding:10px 22px; border-radius:var(--radius-sm); white-space:nowrap;
+      background:rgba(123,92,255,.12); border:1px solid var(--border);
+      color:var(--text); font-size:.875rem; font-weight:600; transition:all var(--transition);
+    }
+    .btn-ghost:hover { border-color:var(--primary); background:rgba(123,92,255,.22); color:#fff; }
     .admin-wrap { position: relative; z-index: 1; max-width: 1360px; margin: 0 auto; padding: 28px clamp(16px, 3vw, 32px) 64px; }
     .admin-card { background: rgba(14, 20, 48, 0.78); border: 1px solid var(--border); border-radius: var(--radius); padding: 24px; backdrop-filter: blur(14px); box-shadow: var(--shadow-glow); margin-bottom: 24px; }
     .kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 16px; margin-bottom: 24px; }
@@ -776,6 +811,13 @@ function renderHeadAssets(title) {
   </style>`;
 }
 
+function renderBackgroundAndScripts() {
+  return `
+  <canvas id="starry-canvas"></canvas>
+  <div class="aura"></div>
+  <script src="${STARRY_JS_URL}" defer></script>`;
+}
+
 function renderLoginHTML(errorMsg = '') {
   return `<!DOCTYPE html>
 <html lang="fr">
@@ -783,7 +825,7 @@ function renderLoginHTML(errorMsg = '') {
   ${renderHeadAssets('Connexion • SuperAdmin Pont Digital')}
 </head>
 <body>
-  <div class="aura"></div>
+  ${renderBackgroundAndScripts()}
   <main style="position:relative;z-index:1;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px;">
     <div class="admin-card" style="width:100%;max-width:440px;text-align:center;padding:36px 28px;">
       <img src="${FAVICON_URL}" alt="Pont Digital" style="width:74px;height:74px;border-radius:50%;margin:0 auto 16px;border:2px solid var(--gold);box-shadow:0 0 28px rgba(244,200,66,.35);object-fit:cover;">
@@ -816,7 +858,7 @@ function renderSelectLocationHTML(clientId, locations) {
   ${renderHeadAssets('Associer une fiche Google • Pont Digital')}
 </head>
 <body>
-  <div class="aura"></div>
+  ${renderBackgroundAndScripts()}
   <main style="position:relative;z-index:1;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px;">
     <div class="admin-card" style="width:100%;max-width:520px;padding:32px;">
       <h1 class="display" style="font-size:1.9rem;color:var(--gold);margin-bottom:10px;">Sélectionne la fiche Google Business</h1>
@@ -956,7 +998,7 @@ async function renderDashboardHTML(env) {
   ${renderHeadAssets('SuperAdmin • Pont Digital')}
 </head>
 <body>
-  <div class="aura"></div>
+  ${renderBackgroundAndScripts()}
 
   <header class="site-header">
     <a href="/" class="brand">
@@ -973,7 +1015,6 @@ async function renderDashboardHTML(env) {
   </header>
 
   <main class="admin-wrap">
-    <!-- KPI -->
     <div class="kpi-grid">
       <div class="kpi-box">
         <div class="kpi-label">Entrepreneurs actifs</div>
@@ -993,7 +1034,6 @@ async function renderDashboardHTML(env) {
       </div>
     </div>
 
-    <!-- AJOUTER UN CLIENT -->
     <section class="admin-card">
       <h2 class="display" style="font-size:1.75rem;color:var(--gold);margin-bottom:14px;">+ Ajouter un entrepreneur au réseau Pont Digital</h2>
       <form id="add-client-form" onsubmit="submitNewClient(event)">
@@ -1021,7 +1061,6 @@ async function renderDashboardHTML(env) {
       </form>
     </section>
 
-    <!-- RÉPERTOIRE & CONNEXIONS GOOGLE -->
     <section class="admin-card">
       <h2 class="display" style="font-size:1.75rem;color:#fff;margin-bottom:14px;">Répertoire des Entrepreneurs, Agendas & Fiches Google</h2>
       <div class="table-scroll">
@@ -1041,7 +1080,6 @@ async function renderDashboardHTML(env) {
       </div>
     </section>
 
-    <!-- JOURNAL DES RENDEZ-VOUS BOOKÉS -->
     <section class="admin-card">
       <h2 class="display" style="font-size:1.75rem;color:var(--gold);margin-bottom:14px;">Journal Appointment Setting • Rendez-vous bookés</h2>
       <form onsubmit="submitAppointment(event)" style="margin-bottom:20px;padding-bottom:18px;border-bottom:1px solid var(--border);">
@@ -1076,7 +1114,6 @@ async function renderDashboardHTML(env) {
       </div>
     </section>
 
-    <!-- PUBLICATION GOOGLE POST + NYXIA -->
     <section class="admin-card">
       <h2 class="display" style="font-size:1.75rem;color:#fff;margin-bottom:14px;">Publier une actualité Google Business Profile (avec NyXia)</h2>
       <form onsubmit="submitGooglePost(event)">
@@ -1105,7 +1142,6 @@ async function renderDashboardHTML(env) {
       </form>
     </section>
 
-    <!-- GESTION DES AVIS GOOGLE -->
     <section class="admin-card">
       <h2 class="display" style="font-size:1.75rem;color:#fff;margin-bottom:14px;">Avis Google Clients & Réponses IA</h2>
       <div class="table-scroll">
@@ -1124,7 +1160,6 @@ async function renderDashboardHTML(env) {
       </div>
     </section>
 
-    <!-- PROSPECTS HEYZINE -->
     <section class="admin-card">
       <h2 class="display" style="font-size:1.75rem;color:#fff;margin-bottom:14px;">Demandes entrantes depuis la Revue Heyzine</h2>
       <div class="table-scroll">
@@ -1144,7 +1179,6 @@ async function renderDashboardHTML(env) {
       </div>
     </section>
 
-    <!-- SÉCURITÉ ÉQUIPE -->
     <section class="admin-card">
       <h2 class="display" style="font-size:1.5rem;color:var(--gold);margin-bottom:10px;">Sécurité • Mot de passe Associé / Équipe</h2>
       <p style="color:var(--text-secondary);font-size:.88rem;margin-bottom:14px;">Définis un second mot de passe chiffré dans D1 pour ton associé ou tes setters sans partager ton mot de passe maître Cloudflare.</p>
@@ -1157,7 +1191,6 @@ async function renderDashboardHTML(env) {
     </section>
   </main>
 
-  <!-- MODALE ÉDITION CLIENT -->
   <div id="edit-modal" class="modal-backdrop">
     <div class="modal-box">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
