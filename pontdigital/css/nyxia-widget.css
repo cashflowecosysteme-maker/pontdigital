@@ -106,3 +106,30 @@
   padding: 0 14px; border-radius: 10px;
   background: linear-gradient(135deg, #7B5CFF, #5A6CFF); color: #fff; font-weight: 700;
 }
+
+/* NyXia Pont Digital — barre de défilement identique aux portails NyXia.
+   Ciblée sur le clavardage : aucune règle globale du Dashboard importée. */
+.nyxia-panel .nyxia-quick-prompts,
+.nyxia-panel .nyxia-messages {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(123, 92, 255, .35) transparent;
+}
+.nyxia-panel .nyxia-quick-prompts::-webkit-scrollbar {
+  height: 6px;
+}
+.nyxia-panel .nyxia-messages::-webkit-scrollbar {
+  width: 6px;
+}
+.nyxia-panel .nyxia-quick-prompts::-webkit-scrollbar-track,
+.nyxia-panel .nyxia-messages::-webkit-scrollbar-track {
+  background: transparent;
+}
+.nyxia-panel .nyxia-quick-prompts::-webkit-scrollbar-thumb,
+.nyxia-panel .nyxia-messages::-webkit-scrollbar-thumb {
+  background: rgba(123, 92, 255, .35);
+  border-radius: 10px;
+}
+.nyxia-panel .nyxia-quick-prompts::-webkit-scrollbar-thumb:hover,
+.nyxia-panel .nyxia-messages::-webkit-scrollbar-thumb:hover {
+  background: rgba(123, 92, 255, .6);
+}
