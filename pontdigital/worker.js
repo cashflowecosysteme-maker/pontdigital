@@ -1,8 +1,6 @@
 // ============================================================================
 // PONT DIGITAL — SITE PUBLIC WORKER (/pontdigital)
 // Domaine : pontdigital.nyxia.top
-// Rôle    : 1. Annuaire public des partenaires D1 (/api/public/clients)
-//           2. Voix interactive de NyXia (/api/nyxia/chat)
 // ============================================================================
 
 export default {
@@ -79,9 +77,27 @@ export default {
       }
     }
 
-    // 3. Fallback vers les fichiers statiques
-    if (env.ASSETS) return env.ASSETS.fetch(request);
-    return new Response('Not Found', { status: 404 });
+    // 3. Favicon
+    if (path === '/favicon.ico') {
+      return Response.redirect(`${url.origin}/images/FavIcon.png`, 302);
+    }
+
+    // 4. Servir index.html et les assets (/css, /js, /images)
+    if (env.ASSETS) {
+      const targetPath = (path === '/' || path === '') ? '/index.html' : path;
+      const primaryUrl = new URL(request.url);
+      primaryUrl.pathname = targetPath;
+
+      let assetRes = await env.ASSETS.fetch(new Request(primaryUrl.toString(), request));
+      if (assetRes.status !== 404) return assetRes;
+
+      const prefixedUrl = new URL(request.url);
+      prefixedUrl.pathname = `/pontdigital${targetPath}`;
+      assetRes = await env.ASSETS.fetch(new Request(prefixedUrl.toString(), request));
+      if (assetRes.status !== 404) return assetRes;
+    }
+
+    return new Response('Page introuvable (vérifie que index.html est bien dans /pontdigital)', { status: 404 });
   }
 };
 
