@@ -164,6 +164,9 @@ export default {
       if (path === '/api/clients/update' && request.method === 'POST') {
         return handleUpdateClientFull(request, env);
       }
+      if (path === '/api/clients/toggle-status' && request.method === 'POST') {
+        return handleToggleClientStatus(request, env);
+      }
       if (path === '/api/clients/delete' && request.method === 'POST') {
         return handleDeleteClient(request, env);
       }
@@ -234,6 +237,11 @@ async function ensureDatabaseReady(db) {
         service_areas TEXT,
         gbp_description TEXT,
         gbp_hours_json TEXT,
+        public_address TEXT,
+        advertorial_text TEXT,
+        social_links TEXT,
+        google_rating REAL,
+        google_review_count INTEGER,
         phone TEXT,
         client_email TEXT,
         booking_calendar_url TEXT,
@@ -319,6 +327,11 @@ async function ensureDatabaseReady(db) {
     'ALTER TABLE clients ADD COLUMN service_areas TEXT',
     'ALTER TABLE clients ADD COLUMN gbp_description TEXT',
     'ALTER TABLE clients ADD COLUMN gbp_hours_json TEXT',
+    'ALTER TABLE clients ADD COLUMN public_address TEXT',
+    'ALTER TABLE clients ADD COLUMN advertorial_text TEXT',
+    'ALTER TABLE clients ADD COLUMN social_links TEXT',
+    'ALTER TABLE clients ADD COLUMN google_rating REAL',
+    'ALTER TABLE clients ADD COLUMN google_review_count INTEGER',
     "ALTER TABLE google_posts ADD COLUMN topic_type TEXT DEFAULT 'STANDARD'",
     'ALTER TABLE google_posts ADD COLUMN media_url TEXT',
     "ALTER TABLE heyzine_leads ADD COLUMN handling_status TEXT DEFAULT 'nouveau'"
@@ -921,6 +934,18 @@ async function syncReviewsForClient(client, env) {
   const reviewsData = await reviewsRes.json();
   if (!reviewsRes.ok) throw new Error(reviewsData.error?.message || 'Erreur API Google Reviews');
 
+  // Enregistrement officiel de la note globale Google et du nombre total réel d'avis
+  const avgRating = typeof reviewsData.averageRating === 'number' ? reviewsData.averageRating : null;
+  const totalCount = typeof reviewsData.totalReviewCount === 'number' ? reviewsData.totalReviewCount : null;
+  if (avgRating !== null || totalCount !== null) {
+    await env.DB.prepare(`
+      UPDATE clients
+      SET google_rating = COALESCE(?, google_rating),
+          google_review_count = COALESCE(?, google_review_count)
+      WHERE id = ?
+    `).bind(avgRating, totalCount, client.id).run();
+  }
+
   const starMap = { ONE: 1, TWO: 2, THREE: 3, FOUR: 4, FIVE: 5 };
   for (const rev of (reviewsData.reviews || [])) {
     await env.DB.prepare(`
@@ -1056,6 +1081,17 @@ async function handleChangePassword(request, env) {
   return Response.redirect(new URL('/?msg=pwd_updated', request.url), 302);
 }
 
+function buildSocialLinksJson(formData) {
+  const links = {
+    website: (formData.get('social_website') || '').trim(),
+    facebook: (formData.get('social_facebook') || '').trim(),
+    instagram: (formData.get('social_instagram') || '').trim(),
+    linkedin: (formData.get('social_linkedin') || '').trim(),
+    tiktok: (formData.get('social_tiktok') || '').trim()
+  };
+  return JSON.stringify(links);
+}
+
 async function handleAddClient(request, env) {
   const formData = await request.formData();
   const businessName = (formData.get('business_name') || '').trim();
@@ -1064,13 +1100,18 @@ async function handleAddClient(request, env) {
   if (!businessName || !city || !category) return Response.redirect(new URL('/?msg=error_fields', request.url), 302);
 
   const galleryJson = JSON.stringify((formData.get('gallery_urls') || '').split(',').map(s => s.trim()).filter(Boolean).slice(0, 5));
+  const socialJson = buildSocialLinksJson(formData);
+
   await env.DB.prepare(`
-    INSERT INTO clients (business_name, city, category, services, service_areas, phone, client_email, booking_calendar_url, booking_notes, heyzine_url, interview_video_url, cover_photo_url, gallery_urls)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO clients (business_name, city, category, services, service_areas, public_address, advertorial_text, social_links, phone, client_email, booking_calendar_url, booking_notes, heyzine_url, interview_video_url, cover_photo_url, gallery_urls)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).bind(
     businessName, city, category,
     (formData.get('services') || '').trim(),
     (formData.get('service_areas') || '').trim(),
+    (formData.get('public_address') || '').trim(),
+    (formData.get('advertorial_text') || '').trim(),
+    socialJson,
     (formData.get('phone') || '').trim(),
     (formData.get('client_email') || '').trim(),
     (formData.get('booking_calendar_url') || '').trim(),
@@ -1093,14 +1134,20 @@ async function handleUpdateClientFull(request, env) {
   if (!clientId || !businessName || !city || !category) return Response.redirect(new URL('/?msg=error_fields', request.url), 302);
 
   const galleryJson = JSON.stringify((formData.get('gallery_urls') || '').split(',').map(s => s.trim()).filter(Boolean).slice(0, 5));
+  const socialJson = buildSocialLinksJson(formData);
+
   await env.DB.prepare(`
-    UPDATE clients SET business_name = ?, city = ?, category = ?, services = ?, service_areas = ?, phone = ?, client_email = ?,
+    UPDATE clients SET business_name = ?, city = ?, category = ?, services = ?, service_areas = ?,
+      public_address = ?, advertorial_text = ?, social_links = ?, phone = ?, client_email = ?,
       booking_calendar_url = ?, booking_notes = ?, heyzine_url = ?, interview_video_url = ?, cover_photo_url = ?, gallery_urls = ?
     WHERE id = ?
   `).bind(
     businessName, city, category,
     (formData.get('services') || '').trim(),
     (formData.get('service_areas') || '').trim(),
+    (formData.get('public_address') || '').trim(),
+    (formData.get('advertorial_text') || '').trim(),
+    socialJson,
     (formData.get('phone') || '').trim(),
     (formData.get('client_email') || '').trim(),
     (formData.get('booking_calendar_url') || '').trim(),
@@ -1112,6 +1159,19 @@ async function handleUpdateClientFull(request, env) {
   ).run();
 
   return Response.redirect(new URL('/?msg=media_updated', request.url), 302);
+}
+
+async function handleToggleClientStatus(request, env) {
+  const formData = await request.formData();
+  const id = formData.get('id');
+  if (id) {
+    const client = await env.DB.prepare('SELECT status FROM clients WHERE id = ?').bind(id).first();
+    if (client) {
+      const nextStatus = (client.status === 'inactive') ? 'active' : 'inactive';
+      await env.DB.prepare('UPDATE clients SET status = ? WHERE id = ?').bind(nextStatus, id).run();
+    }
+  }
+  return Response.redirect(new URL('/?msg=client_status_updated', request.url), 302);
 }
 
 async function handleDeleteClient(request, env) {
@@ -1323,6 +1383,7 @@ function renderDashboardHTML(clients, recentReviews, recentLeads, recentAppointm
     client_added: 'Entrepreneur ajouté à la base D1 Pont Digital.',
     media_updated: 'Fiche entrepreneur, Agenda Workspace & Médias mis à jour !',
     client_deleted: 'Fiche entrepreneur supprimée.',
+    client_status_updated: 'Visibilité de la fiche commerciale (Active / Désactivée) mise à jour !',
     error_fields: 'Veuillez remplir les champs obligatoires ou cocher au moins une section à mettre à jour.',
     google_connected: 'Fiche Google Business Profile connectée avec succès !',
     google_location_assigned: 'Établissement Google Agence associé avec succès !',
@@ -1365,6 +1426,11 @@ function renderDashboardHTML(clients, recentReviews, recentLeads, recentAppointm
     let photosCount = 0;
     try { photosCount = JSON.parse(c.gallery_urls || '[]').length; } catch (_) {}
 
+    const isActive = (c.status !== 'inactive');
+    const ratingBadge = (c.google_rating !== null && c.google_rating !== undefined)
+      ? `<span style="color:var(--gold);font-weight:600;">★ ${Number(c.google_rating).toFixed(1)} (${c.google_review_count ?? c.review_count ?? 0} avis)</span>`
+      : `${c.review_count || 0} avis`;
+
     // SÉCURITÉ : seuls les champs d'édition sont transmis au navigateur (aucun jeton Google exposé dans le HTML)
     const safeClientForEdit = {
       id: c.id,
@@ -1373,6 +1439,9 @@ function renderDashboardHTML(clients, recentReviews, recentLeads, recentAppointm
       category: c.category || '',
       services: c.services || '',
       service_areas: c.service_areas || '',
+      public_address: c.public_address || '',
+      advertorial_text: c.advertorial_text || '',
+      social_links: c.social_links || '{}',
       phone: c.phone || '',
       client_email: c.client_email || '',
       booking_calendar_url: c.booking_calendar_url || '',
@@ -1384,15 +1453,20 @@ function renderDashboardHTML(clients, recentReviews, recentLeads, recentAppointm
     };
 
     return `
-      <tr>
+      <tr style="${isActive ? '' : 'opacity:.62;'}">
         <td>
           <div style="display:flex;align-items:center;gap:10px;">
             ${c.cover_photo_url ? `<img src="${escapeHtml(c.cover_photo_url)}" alt="" style="width:40px;height:40px;border-radius:10px;object-fit:cover;border:1px solid var(--border);flex-shrink:0;">` : ''}
             <div>
-              <strong style="color:#fff;font-size:.96rem;">${escapeHtml(c.business_name)}</strong> <span style="color:var(--gold);font-size:.75rem;">#${c.id}</span>
+              <strong style="color:#fff;font-size:.96rem;">${escapeHtml(c.business_name)}</strong>
+              <span style="color:var(--gold);font-size:.75rem;">#${c.id}</span>
+              ${isActive
+                ? `<span class="pill pill-ok" style="margin-left:6px;padding:2px 8px;font-size:.68rem;">Active</span>`
+                : `<span class="pill pill-muted" style="margin-left:6px;padding:2px 8px;font-size:.68rem;">Désactivée</span>`}
               <div style="font-size:.8rem;color:var(--text-muted);">${escapeHtml(c.category)} • ${escapeHtml(c.city)}</div>
+              ${c.public_address ? `<div style="font-size:.75rem;color:var(--text-secondary);">🏠 ${escapeHtml(c.public_address)}</div>` : ''}
               ${c.service_areas ? `<div style="font-size:.75rem;color:var(--primary-light);">📍 ${escapeHtml(c.service_areas)}</div>` : ''}
-              <div style="font-size:.76rem;color:var(--text-secondary);">${c.rdv_count || 0} RDV • ${c.lead_count || 0} leads • ${c.review_count || 0} avis • ${photosCount} photo(s)</div>
+              <div style="font-size:.76rem;color:var(--text-secondary);">${c.rdv_count || 0} RDV • ${c.lead_count || 0} leads • ${ratingBadge} • ${photosCount} photo(s)</div>
             </div>
           </div>
         </td>
@@ -1418,6 +1492,10 @@ function renderDashboardHTML(clients, recentReviews, recentLeads, recentAppointm
         <td>
           <div class="actions-stack">
             <button type="button" class="btn-sm btn-ghost" onclick='openEditModal(${JSON.stringify(safeClientForEdit).replace(/'/g, "&#39;")})'>✏️ Modifier</button>
+            <form method="POST" action="/api/clients/toggle-status" style="margin:0;">
+              <input type="hidden" name="id" value="${c.id}">
+              <button type="submit" class="btn-sm btn-ghost">${isActive ? '⏸️ Désactiver' : '▶️ Activer'}</button>
+            </form>
             ${isConnected ? `
               <form method="POST" action="/api/google/sync-reviews" style="margin:0;">
                 <input type="hidden" name="client_id" value="${c.id}">
@@ -1561,8 +1639,20 @@ function renderDashboardHTML(clients, recentReviews, recentLeads, recentAppointm
             <div class="field"><label>URL Photo couverture principale</label><input type="url" name="cover_photo_url" placeholder="https://..."></div>
           </div>
           <div class="field-grid" style="margin-top:14px;">
+            <div class="field"><label>Adresse publique ou zone géographique précise</label><input name="public_address" placeholder="Ex: 123 Rue Principale, Saint-Calixte, QC J0K 1Z0"></div>
+            <div class="field"><label>Site web officiel</label><input type="url" name="social_website" placeholder="https://..."></div>
+            <div class="field"><label>Page Facebook</label><input type="url" name="social_facebook" placeholder="https://facebook.com/..."></div>
+            <div class="field"><label>Instagram</label><input type="url" name="social_instagram" placeholder="https://instagram.com/..."></div>
+            <div class="field"><label>LinkedIn</label><input type="url" name="social_linkedin" placeholder="https://linkedin.com/..."></div>
+            <div class="field"><label>TikTok</label><input type="url" name="social_tiktok" placeholder="https://tiktok.com/@..."></div>
+          </div>
+          <div class="field-grid" style="margin-top:14px;">
             <div class="field"><label>Consignes pour les setters (script / critères qualification)</label><input name="booking_notes" placeholder="Ex: RDV découverte 20 min, secteur Rive-Nord uniquement"></div>
             <div class="field"><label>Photos galerie (jusqu'à 5 URLs séparées par une virgule)</label><input name="gallery_urls" placeholder="https://img1.jpg, https://img2.jpg"></div>
+          </div>
+          <div class="field" style="margin-top:14px;">
+            <label>Texte narratif du publireportage (fiche commerciale publique)</label>
+            <textarea name="advertorial_text" rows="3" placeholder="Histoire de l'entrepreneur, mission, approche humaine et ce qui le distingue dans sa région..."></textarea>
           </div>
           <div style="margin-top:16px;"><button type="submit" class="btn-primary">Enregistrer l'entrepreneur</button></div>
         </form>
@@ -1863,6 +1953,15 @@ function renderDashboardHTML(clients, recentReviews, recentLeads, recentAppointm
           <div class="field"><label>URL Vidéo entrevue</label><input type="url" name="interview_video_url" id="edit-interview_video_url"></div>
           <div class="field"><label>URL Photo couverture principale</label><input type="url" name="cover_photo_url" id="edit-cover_photo_url"></div>
         </div>
+        <div class="field" style="margin-top:12px;"><label>Adresse publique ou zone géographique précise</label><input name="public_address" id="edit-public_address"></div>
+        <div class="field-grid" style="margin-top:12px;">
+          <div class="field"><label>Site web</label><input type="url" name="social_website" id="edit-social_website"></div>
+          <div class="field"><label>Facebook</label><input type="url" name="social_facebook" id="edit-social_facebook"></div>
+          <div class="field"><label>Instagram</label><input type="url" name="social_instagram" id="edit-social_instagram"></div>
+          <div class="field"><label>LinkedIn</label><input type="url" name="social_linkedin" id="edit-social_linkedin"></div>
+          <div class="field"><label>TikTok</label><input type="url" name="social_tiktok" id="edit-social_tiktok"></div>
+        </div>
+        <div class="field" style="margin-top:12px;"><label>Texte narratif du publireportage</label><textarea name="advertorial_text" id="edit-advertorial_text" rows="3"></textarea></div>
         <div class="field" style="margin-top:12px;"><label>Consignes Setters</label><input name="booking_notes" id="edit-booking_notes"></div>
         <div class="field" style="margin-top:12px;"><label>Photos galerie (max 5 URLs séparées par virgule)</label><input name="gallery_urls" id="edit-gallery_urls"></div>
         <div style="margin-top:18px;display:flex;justify-content:flex-end;gap:10px;">
