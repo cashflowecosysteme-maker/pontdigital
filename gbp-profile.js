@@ -453,6 +453,10 @@ export async function handleUpdateGoogleProfileRoute(request, env, getGoogleAcce
 
   if (applySpecialHours) {
     specialPeriods = buildSpecialHourPeriodsFromJson(formData.get('special_hours_json'));
+    const confirmClearSpecial = formData.get('confirm_clear_special_hours') === '1';
+    if (specialPeriods.length === 0 && !confirmClearSpecial) {
+      return Response.redirect(new URL('/?msg=special_hours_empty_blocked', request.url), 302);
+    }
     updateMask.push('specialHours');
     payload.specialHours = { specialHourPeriods: specialPeriods };
   }
