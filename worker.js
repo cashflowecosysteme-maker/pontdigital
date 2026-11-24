@@ -1398,6 +1398,7 @@ function renderDashboardHTML(clients, recentReviews, recentLeads, recentAppointm
     profile_updated_verified: '✓ Fiche Google Business Profile mise à jour, valeurs confirmées à l’identique sur Google et synchronisées dans D1 !',
     profile_updated_pending: '⏳ Requête acceptée par Google, mais les nouvelles valeurs ne sont pas encore visibles (modération Google en cours). D1 conserve l’état actuel.',
     hours_empty_blocked: '⚠️ Sécurité horaires : impossible d’envoyer des horaires réguliers entièrement vides. Renseigne au moins une plage ou décoche la case.',
+    special_hours_empty_blocked: '⚠️ Sécurité horaires spéciaux : suppression annulée faute de confirmation explicite.',
     profile_d1_only: 'Services et territoire desservi enregistrés dans D1 pour le répertoire public !',
     google_api_error: 'Erreur de communication avec l’API Google Business Profile.',
     lead_processed: 'Alerte SMS envoyée par NyXia vers ton cellulaire et lead enregistré.',
@@ -1801,6 +1802,7 @@ function renderDashboardHTML(clients, recentReviews, recentLeads, recentAppointm
         <form id="gbp-profile-form" method="POST" action="/api/google/update-profile" onsubmit="return confirmProfileUpdate(event)">
           <input type="hidden" id="profile-loaded-flag" value="0">
           <input type="hidden" id="special-hours-json" name="special_hours_json" value="[]">
+          <input type="hidden" id="confirm-clear-special-hours" name="confirm_clear_special_hours" value="0">
 
           <div class="field-grid">
             <div class="field">
