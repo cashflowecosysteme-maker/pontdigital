@@ -38,8 +38,12 @@ export default {
 
         // Site public uniquement : aucun acces aux autres fichiers et routes.
         // Les CSS/JS/images sont lus dans /pontdigital/ et non a la racine admin.
-        const isPublicAsset = publicPath === '/' ||
+        const isPublicHome = publicPath === '/' ||
           publicPath === '/index.html' ||
+          publicPath === '/pontdigital/' ||
+          publicPath === '/pontdigital' ||
+          publicPath === '/pontdigital/index.html';
+        const isPublicAsset = isPublicHome ||
           publicPath === '/index2.html' ||
           publicPath.startsWith('/css/') ||
           publicPath.startsWith('/js/') ||
@@ -51,7 +55,10 @@ export default {
           return new Response('Methode non autorisee', { status: 405 });
         }
         const publicUrl = new URL(request.url);
-        publicUrl.pathname = '/pontdigital' + ((publicPath === '/' || publicPath === '/index.html') ? '/index.html' : publicPath);
+        // Cloudflare redirige /pontdigital/index.html vers /pontdigital/.
+        // Servir directement le chemin canonique interne évite une redirection
+        // visible et une deuxième requête rejetée par le routage public.
+        publicUrl.pathname = isPublicHome ? '/pontdigital/' : '/pontdigital' + publicPath;
         return publicSiteWorker.fetch(new Request(publicUrl.toString(), request), env);
       }
       const path = url.pathname;
