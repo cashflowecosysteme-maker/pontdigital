@@ -43,8 +43,13 @@ export default {
           publicPath === '/pontdigital/' ||
           publicPath === '/pontdigital' ||
           publicPath === '/pontdigital/index.html';
-        const isPublicAsset = isPublicHome ||
+        // Cloudflare sert index2.html sous l'URL canonique /pontdigital/index2.
+        // Accepter les deux variantes et les anciennes URLs déjà utilisées.
+        const isPublicAgency = publicPath === '/index2' ||
           publicPath === '/index2.html' ||
+          publicPath === '/pontdigital/index2' ||
+          publicPath === '/pontdigital/index2.html';
+        const isPublicAsset = isPublicHome || isPublicAgency ||
           publicPath.startsWith('/css/') ||
           publicPath.startsWith('/js/') ||
           publicPath.startsWith('/images/');
@@ -58,7 +63,8 @@ export default {
         // Cloudflare redirige /pontdigital/index.html vers /pontdigital/.
         // Servir directement le chemin canonique interne évite une redirection
         // visible et une deuxième requête rejetée par le routage public.
-        publicUrl.pathname = isPublicHome ? '/pontdigital/' : '/pontdigital' + publicPath;
+        publicUrl.pathname = isPublicHome ? '/pontdigital/' :
+          (isPublicAgency ? '/pontdigital/index2' : '/pontdigital' + publicPath);
         return publicSiteWorker.fetch(new Request(publicUrl.toString(), request), env);
       }
       const path = url.pathname;
