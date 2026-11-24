@@ -1,8 +1,8 @@
 // ============================================================================
 // PONT DIGITAL — MODULE OPTIMISATION FICHE GBP
 // Fonctions : Lecture Google (GET), Rédaction NyXia, Mise à jour sécurisée
-//             (Description, Horaires jour par jour + fractionnés, Horaires spéciaux),
-//             Vérification post-envoi et Synchronisation D1.
+//             (Description, Horaires jour par jour + fractionnés + après minuit,
+//             Horaires spéciaux), Vérification réelle post-envoi et Synchro D1.
 // Sécurité multi-fiches : aucune lecture/écriture sans google_location_name.
 // ============================================================================
 
@@ -15,6 +15,30 @@ const DAYS_ORDER = [
   'SATURDAY',
   'SUNDAY'
 ];
+
+function getNextDay(dayCode) {
+  const idx = DAYS_ORDER.indexOf(dayCode);
+  if (idx === -1) return dayCode;
+  return DAYS_ORDER[(idx + 1) % DAYS_ORDER.length];
+}
+
+function getNextDateParts(dateParts) {
+  const d = new Date(Date.UTC(dateParts.year, dateParts.month - 1, dateParts.day + 1));
+  return {
+    year: d.getUTCFullYear(),
+    month: d.getUTCMonth() + 1,
+    day: d.getUTCDate()
+  };
+}
+
+function timeToMinutes(t) {
+  if (!t || typeof t !== 'object') return -1;
+  return Number(t.hours || 0) * 60 + Number(t.minutes || 0);
+}
+
+function isOvernight(openTime, closeTime) {
+  return timeToMinutes(closeTime) <= timeToMinutes(openTime);
+}
 
 function extractV1Location(locationName) {
   const clean = String(locationName || '').trim();
@@ -102,12 +126,22 @@ function buildRegularHoursPeriodsFromForm(formData) {
     const open1 = parseTimeParts(formData.get(`day_${day}_open1`));
     const close1 = parseTimeParts(formData.get(`day_${day}_close1`));
     if (open1 && close1) {
-      periods.push({ openDay: day, openTime: open1, closeDay: day, closeTime: close1 });
+      periods.push({
+        openDay: day,
+        openTime: open1,
+        closeDay: isOvernight(open1, close1) ? getNextDay(day) : day,
+        closeTime: close1
+      });
     }
     const open2 = parseTimeParts(formData.get(`day_${day}_open2`));
     const close2 = parseTimeParts(formData.get(`day_${day}_close2`));
     if (open2 && close2) {
-      periods.push({ openDay: day, openTime: open2, closeDay: day, closeTime: close2 });
+      periods.push({
+        openDay: day,
+        openTime: open2,
+        closeDay: isOvernight(open2, close2) ? getNextDay(day) : day,
+        closeTime: close2
+      });
     }
   }
   return periods;
@@ -139,7 +173,7 @@ function buildSpecialHourPeriodsFromJson(rawJson) {
         periods.push({
           startDate: dateParts,
           openTime,
-          endDate: dateParts,
+          endDate: isOvernight(openTime, closeTime) ? getNextDateParts(dateParts) : dateParts,
           closeTime,
           closed: false
         });
@@ -147,6 +181,58 @@ function buildSpecialHourPeriodsFromJson(rawJson) {
     }
   }
   return periods;
+}
+
+// ============================================================================
+// COMPARAISON RÉELLE POST-PUBLICATION (DEMANDÉ VS RELU SUR GOOGLE)
+// ============================================================================
+
+function normalizeRegularSignature(periods) {
+  return (periods || [])
+    .map(p => `${p.openDay}|${formatGoogleTime(p.openTime)}|${p.closeDay}|${formatGoogleTime(p.closeTime)}`)
+    .sort()
+    .join(';');
+}
+
+function normalizeSpecialSignature(periods) {
+  return (periods || [])
+    .map(p => {
+      const start = formatGoogleDate(p.startDate);
+      const end = formatGoogleDate(p.endDate || p.startDate);
+      if (p.closed) return `${start}|${end}|CLOSED`;
+      return `${start}|${end}|${formatGoogleTime(p.openTime)}|${formatGoogleTime(p.closeTime)}`;
+    })
+    .sort()
+    .join(';');
+}
+
+function verifyAppliedChanges(verifiedData, requested) {
+  if (!verifiedData || typeof verifiedData !== 'object') return false;
+
+  if (requested.applyDescription) {
+    const actualDesc = String(verifiedData?.profile?.description || '').trim();
+    if (actualDesc !== String(requested.description || '').trim()) {
+      return false;
+    }
+  }
+
+  if (requested.applyHours) {
+    const expectedSig = normalizeRegularSignature(requested.regularPeriods);
+    const actualSig = normalizeRegularSignature(verifiedData?.regularHours?.periods || []);
+    if (expectedSig !== actualSig) {
+      return false;
+    }
+  }
+
+  if (requested.applySpecialHours) {
+    const expectedSig = normalizeSpecialSignature(requested.specialPeriods);
+    const actualSig = normalizeSpecialSignature(verifiedData?.specialHours?.specialHourPeriods || []);
+    if (expectedSig !== actualSig) {
+      return false;
+    }
+  }
+
+  return true;
 }
 
 // ============================================================================
@@ -196,7 +282,6 @@ export async function handleReadGoogleProfileApi(request, env, getGoogleAccessTo
       synced_at: new Date().toISOString()
     });
 
-    // Synchronisation automatique dans D1 pour le futur site public
     await env.DB.prepare(`
       UPDATE clients
       SET gbp_description = ?, gbp_hours_json = ?
@@ -205,6 +290,7 @@ export async function handleReadGoogleProfileApi(request, env, getGoogleAccessTo
 
     return jsonResponse({
       ok: true,
+      client_id: String(client.id),
       location_title: locData?.title || client.google_location_title || client.business_name,
       location_name: v1Location,
       description,
@@ -296,7 +382,7 @@ export async function handleNyxiaDraftProfileApi(request, env, jsonResponse) {
 }
 
 // ============================================================================
-// 3. MISE À JOUR GOOGLE + VÉRIFICATION POST-ENVOI + SYNCHRO D1
+// 3. MISE À JOUR GOOGLE + VÉRIFICATION RÉELLE POST-ENVOI + SYNCHRO D1
 // ============================================================================
 
 export async function handleUpdateGoogleProfileRoute(request, env, getGoogleAccessToken) {
@@ -336,6 +422,8 @@ export async function handleUpdateGoogleProfileRoute(request, env, getGoogleAcce
 
   const updateMask = [];
   const payload = {};
+  let regularPeriods = [];
+  let specialPeriods = [];
 
   if (applyDescription && description) {
     updateMask.push('profile.description');
@@ -343,15 +431,19 @@ export async function handleUpdateGoogleProfileRoute(request, env, getGoogleAcce
   }
 
   if (applyHours) {
-    const periods = buildRegularHoursPeriodsFromForm(formData);
+    regularPeriods = buildRegularHoursPeriodsFromForm(formData);
+    // PROTECTION : refuser d'envoyer une liste d'horaires réguliers entièrement vide
+    if (regularPeriods.length === 0) {
+      return Response.redirect(new URL('/?msg=hours_empty_blocked', request.url), 302);
+    }
     updateMask.push('regularHours');
-    payload.regularHours = { periods };
+    payload.regularHours = { periods: regularPeriods };
   }
 
   if (applySpecialHours) {
-    const specialHourPeriods = buildSpecialHourPeriodsFromJson(formData.get('special_hours_json'));
+    specialPeriods = buildSpecialHourPeriodsFromJson(formData.get('special_hours_json'));
     updateMask.push('specialHours');
-    payload.specialHours = { specialHourPeriods };
+    payload.specialHours = { specialHourPeriods: specialPeriods };
   }
 
   if (updateMask.length === 0) {
@@ -380,7 +472,7 @@ export async function handleUpdateGoogleProfileRoute(request, env, getGoogleAcce
       return Response.redirect(new URL('/?msg=google_api_error', request.url), 302);
     }
 
-    // VÉRIFICATION APRÈS PUBLICATION : relecture officielle depuis Google pour confirmer l'acceptation
+    // VÉRIFICATION RÉELLE APRÈS PUBLICATION : relecture + comparaison stricte des valeurs
     const verifyRes = await fetch(
       `https://mybusinessbusinessinformation.googleapis.com/v1/${v1Location}?readMask=profile,regularHours,specialHours`,
       {
@@ -389,13 +481,12 @@ export async function handleUpdateGoogleProfileRoute(request, env, getGoogleAcce
       }
     );
 
-    let verifiedDesc = applyDescription ? description : (client.gbp_description || '');
+    let verifiedDesc = client.gbp_description || '';
     let verifiedHoursJson = client.gbp_hours_json || null;
-    let verifiedOk = false;
+    let statusMsg = 'profile_updated';
 
     if (verifyRes.ok) {
       const verifiedData = await verifyRes.json();
-      verifiedOk = true;
       if (verifiedData?.profile?.description !== undefined) {
         verifiedDesc = verifiedData.profile.description;
       }
@@ -404,19 +495,27 @@ export async function handleUpdateGoogleProfileRoute(request, env, getGoogleAcce
         specialHours: verifiedData?.specialHours || null,
         synced_at: new Date().toISOString()
       });
+
+      const exactMatch = verifyAppliedChanges(verifiedData, {
+        applyDescription: applyDescription && Boolean(description),
+        description,
+        applyHours,
+        regularPeriods,
+        applySpecialHours,
+        specialPeriods
+      });
+
+      statusMsg = exactMatch ? 'profile_updated_verified' : 'profile_updated_pending';
     }
 
-    // Synchronisation D1 immédiate avec les données confirmées par Google
+    // Synchronisation D1 avec les valeurs réellement relues sur Google
     await env.DB.prepare(`
       UPDATE clients
       SET gbp_description = ?, gbp_hours_json = ?
       WHERE id = ?
     `).bind(verifiedDesc, verifiedHoursJson, client.id).run();
 
-    return Response.redirect(
-      new URL(verifiedOk ? '/?msg=profile_updated_verified' : '/?msg=profile_updated', request.url),
-      302
-    );
+    return Response.redirect(new URL(`/?msg=${statusMsg}`, request.url), 302);
   } catch (_) {
     return Response.redirect(new URL('/?msg=google_api_error', request.url), 302);
   }
