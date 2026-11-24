@@ -1,4 +1,5 @@
 import publicSiteWorker from './pontdigital/worker.js';
+import {saveMagazineIssue, toggleMagazineIssue, renderMagazinePanel} from './magazine-admin.js';
 import {
   handleReadGoogleProfileApi,
   handleNyxiaDraftProfileApi,
@@ -28,7 +29,8 @@ export default {
         const publicPath = url.pathname;
 
         // API du module public : conserver les URLs utilisees par le site.
-        if (publicPath === '/api/public/clients' ||
+        if (publicPath.startsWith('/api/public/') ||
+            /^\/entreprise\/\d+$/.test(publicPath) ||
             publicPath === '/api/nyxia/chat' ||
             publicPath === '/favicon.ico') {
           return publicSiteWorker.fetch(request, env);
@@ -38,6 +40,7 @@ export default {
         // Les CSS/JS/images sont lus dans /pontdigital/ et non a la racine admin.
         const isPublicAsset = publicPath === '/' ||
           publicPath === '/index.html' ||
+          publicPath === '/index2.html' ||
           publicPath.startsWith('/css/') ||
           publicPath.startsWith('/js/') ||
           publicPath.startsWith('/images/');
@@ -48,7 +51,7 @@ export default {
           return new Response('Methode non autorisee', { status: 405 });
         }
         const publicUrl = new URL(request.url);
-        publicUrl.pathname = '/pontdigital' + ((publicPath === '/' || publicPath === '/index.html') ? '/' : publicPath);
+        publicUrl.pathname = '/pontdigital' + ((publicPath === '/' || publicPath === '/index.html') ? '/index.html' : publicPath);
         return publicSiteWorker.fetch(new Request(publicUrl.toString(), request), env);
       }
       const path = url.pathname;
@@ -167,6 +170,8 @@ export default {
       if (path === '/api/clients/toggle-status' && request.method === 'POST') {
         return handleToggleClientStatus(request, env);
       }
+      if (path === '/api/magazine/save' && request.method === 'POST') return saveMagazineIssue(request, env);
+      if (path === '/api/magazine/toggle' && request.method === 'POST') return toggleMagazineIssue(request, env);
       if (path === '/api/clients/delete' && request.method === 'POST') {
         return handleDeleteClient(request, env);
       }
@@ -181,6 +186,8 @@ export default {
         FROM clients c
         ORDER BY c.created_at DESC
       `).all();
+
+      const { results: magazineIssues } = await env.DB.prepare('SELECT * FROM magazine_issues ORDER BY issue_month DESC').all();
 
       const { results: recentReviews } = await env.DB.prepare(`
         SELECT r.*, c.business_name, c.city, c.category, c.google_refresh_token
@@ -207,7 +214,7 @@ export default {
       `).all();
 
       return new Response(
-        renderDashboardHTML(clients, recentReviews, recentLeads, recentAppointments, url.searchParams.get('msg'), url.origin),
+        renderDashboardHTML(clients, recentReviews, recentLeads, recentAppointments, url.searchParams.get('msg'), url.origin, magazineIssues),
         { headers: { 'Content-Type': 'text/html; charset=utf-8' } }
       );
     } catch (err) {
@@ -227,6 +234,7 @@ export default {
 async function ensureDatabaseReady(db) {
   await db.batch([
     db.prepare(`CREATE TABLE IF NOT EXISTS admin_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at DATETIME DEFAULT CURRENT_TIMESTAMP)`),
+    db.prepare(`CREATE TABLE IF NOT EXISTS magazine_issues (issue_month TEXT PRIMARY KEY, title TEXT NOT NULL, heyzine_url TEXT NOT NULL, cover_url TEXT, introduction TEXT, published INTEGER NOT NULL DEFAULT 0, created_at DATETIME DEFAULT CURRENT_TIMESTAMP, updated_at DATETIME DEFAULT CURRENT_TIMESTAMP)`),
     db.prepare(`
       CREATE TABLE IF NOT EXISTS clients (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -238,6 +246,7 @@ async function ensureDatabaseReady(db) {
         gbp_description TEXT,
         gbp_hours_json TEXT,
         public_address TEXT,
+        show_public_address INTEGER NOT NULL DEFAULT 0,
         advertorial_text TEXT,
         social_links TEXT,
         google_rating REAL,
@@ -328,6 +337,7 @@ async function ensureDatabaseReady(db) {
     'ALTER TABLE clients ADD COLUMN gbp_description TEXT',
     'ALTER TABLE clients ADD COLUMN gbp_hours_json TEXT',
     'ALTER TABLE clients ADD COLUMN public_address TEXT',
+    'ALTER TABLE clients ADD COLUMN show_public_address INTEGER NOT NULL DEFAULT 0',
     'ALTER TABLE clients ADD COLUMN advertorial_text TEXT',
     'ALTER TABLE clients ADD COLUMN social_links TEXT',
     'ALTER TABLE clients ADD COLUMN google_rating REAL',
@@ -1087,7 +1097,8 @@ function buildSocialLinksJson(formData) {
     facebook: (formData.get('social_facebook') || '').trim(),
     instagram: (formData.get('social_instagram') || '').trim(),
     linkedin: (formData.get('social_linkedin') || '').trim(),
-    tiktok: (formData.get('social_tiktok') || '').trim()
+    tiktok: (formData.get('social_tiktok') || '').trim(),
+    youtube: (formData.get('social_youtube') || '').trim()
   };
   return JSON.stringify(links);
 }
@@ -1103,13 +1114,14 @@ async function handleAddClient(request, env) {
   const socialJson = buildSocialLinksJson(formData);
 
   await env.DB.prepare(`
-    INSERT INTO clients (business_name, city, category, services, service_areas, public_address, advertorial_text, social_links, phone, client_email, booking_calendar_url, booking_notes, heyzine_url, interview_video_url, cover_photo_url, gallery_urls)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO clients (business_name, city, category, services, service_areas, public_address, show_public_address, advertorial_text, social_links, phone, client_email, booking_calendar_url, booking_notes, heyzine_url, interview_video_url, cover_photo_url, gallery_urls)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).bind(
     businessName, city, category,
     (formData.get('services') || '').trim(),
     (formData.get('service_areas') || '').trim(),
     (formData.get('public_address') || '').trim(),
+    formData.get('show_public_address') === '1' ? 1 : 0,
     (formData.get('advertorial_text') || '').trim(),
     socialJson,
     (formData.get('phone') || '').trim(),
@@ -1138,7 +1150,7 @@ async function handleUpdateClientFull(request, env) {
 
   await env.DB.prepare(`
     UPDATE clients SET business_name = ?, city = ?, category = ?, services = ?, service_areas = ?,
-      public_address = ?, advertorial_text = ?, social_links = ?, phone = ?, client_email = ?,
+      public_address = ?, show_public_address = ?, advertorial_text = ?, social_links = ?, phone = ?, client_email = ?,
       booking_calendar_url = ?, booking_notes = ?, heyzine_url = ?, interview_video_url = ?, cover_photo_url = ?, gallery_urls = ?
     WHERE id = ?
   `).bind(
@@ -1146,6 +1158,7 @@ async function handleUpdateClientFull(request, env) {
     (formData.get('services') || '').trim(),
     (formData.get('service_areas') || '').trim(),
     (formData.get('public_address') || '').trim(),
+    formData.get('show_public_address') === '1' ? 1 : 0,
     (formData.get('advertorial_text') || '').trim(),
     socialJson,
     (formData.get('phone') || '').trim(),
@@ -1376,7 +1389,7 @@ function renderHoursTableRows() {
   `).join('');
 }
 
-function renderDashboardHTML(clients, recentReviews, recentLeads, recentAppointments, msg, origin) {
+function renderDashboardHTML(clients, recentReviews, recentLeads, recentAppointments, msg, origin, magazineIssues) {
   const alerts = {
     pwd_updated: 'Mot de passe interne mis à jour avec succès dans D1.',
     error_pwd: 'Erreur : le mot de passe doit contenir au moins 8 caractères et être identique.',
@@ -1404,7 +1417,9 @@ function renderDashboardHTML(clients, recentReviews, recentLeads, recentAppointm
     lead_processed: 'Alerte SMS envoyée par NyXia vers ton cellulaire et lead enregistré.',
     lead_status_updated: 'Statut de suivi du lead mis à jour.',
     rdv_booked: 'Rendez-vous qualifié enregistré ! Clique sur « 📅 Invitation Google Agenda ↗ » dans le journal.',
-    rdv_deleted: 'Rendez-vous retiré du journal.'
+    rdv_deleted: 'Rendez-vous retiré du journal.',
+    magazine_saved: 'Édition de la revue enregistrée.',
+    magazine_invalid: 'Vérifie le mois, le titre et l’URL Heyzine (https://heyzine.com/...).'
   };
 
   const gbpConnectedCount = clients.filter(c => Boolean(c.google_refresh_token)).length;
@@ -1441,6 +1456,7 @@ function renderDashboardHTML(clients, recentReviews, recentLeads, recentAppointm
       services: c.services || '',
       service_areas: c.service_areas || '',
       public_address: c.public_address || '',
+      show_public_address: Number(c.show_public_address || 0),
       advertorial_text: c.advertorial_text || '',
       social_links: c.social_links || '{}',
       phone: c.phone || '',
@@ -1613,12 +1629,13 @@ function renderDashboardHTML(clients, recentReviews, recentLeads, recentAppointm
       <div class="kpi-box"><div class="kpi-label">Avis en attente de réponse</div><div class="kpi-val">${pendingReviewsCount}</div></div>
     </div>
 
-    <!-- NAVIGATION PAR 4 ONGLETS PROPRES -->
+    <!-- NAVIGATION : 4 ONGLETS EXISTANTS + REVUE -->
     <nav class="tabs-nav" aria-label="Sections Super Admin">
       <button type="button" class="tab-btn active" data-tab="clients" onclick="switchTab('clients')">🏢 Entrepreneurs &amp; Agendas (${clients.length})</button>
       <button type="button" class="tab-btn" data-tab="setting" onclick="switchTab('setting')">📅 Appointment Setting &amp; Leads (${recentAppointments.length + recentLeads.length})</button>
       <button type="button" class="tab-btn" data-tab="gbp" onclick="switchTab('gbp')">✨ Studio Google &amp; NyXia (${pendingReviewsCount})</button>
       <button type="button" class="tab-btn" data-tab="settings" onclick="switchTab('settings')">⚙️ Tests SMS &amp; Sécurité</button>
+      <button type="button" class="tab-btn" data-tab="magazine" onclick="switchTab('magazine')">📖 Revue &amp; Archives</button>
     </nav>
 
     <!-- ONGLET 1 : ENTREPRENEURS & AGENDAS -->
@@ -1640,12 +1657,14 @@ function renderDashboardHTML(clients, recentReviews, recentLeads, recentAppointm
             <div class="field"><label>URL Photo couverture principale</label><input type="url" name="cover_photo_url" placeholder="https://..."></div>
           </div>
           <div class="field-grid" style="margin-top:14px;">
-            <div class="field"><label>Adresse publique ou zone géographique précise</label><input name="public_address" placeholder="Ex: 123 Rue Principale, Saint-Calixte, QC J0K 1Z0"></div>
+            <div class="field"><label>Adresse de l’établissement (affichée seulement si autorisée)</label><input name="public_address" placeholder="Ex: 123 Rue Principale, Saint-Calixte, QC J0K 1Z0"></div>
+            <div class="field"><label class="check-row"><input type="checkbox" name="show_public_address" value="1"> Autoriser l’affichage de l’adresse sur le répertoire public</label></div>
             <div class="field"><label>Site web officiel</label><input type="url" name="social_website" placeholder="https://..."></div>
             <div class="field"><label>Page Facebook</label><input type="url" name="social_facebook" placeholder="https://facebook.com/..."></div>
             <div class="field"><label>Instagram</label><input type="url" name="social_instagram" placeholder="https://instagram.com/..."></div>
             <div class="field"><label>LinkedIn</label><input type="url" name="social_linkedin" placeholder="https://linkedin.com/..."></div>
             <div class="field"><label>TikTok</label><input type="url" name="social_tiktok" placeholder="https://tiktok.com/@..."></div>
+            <div class="field"><label>YouTube</label><input type="url" name="social_youtube" placeholder="https://youtube.com/@..."></div>
           </div>
           <div class="field-grid" style="margin-top:14px;">
             <div class="field"><label>Consignes pour les setters (script / critères qualification)</label><input name="booking_notes" placeholder="Ex: RDV découverte 20 min, secteur Rive-Nord uniquement"></div>
@@ -1904,6 +1923,8 @@ function renderDashboardHTML(clients, recentReviews, recentLeads, recentAppointm
       </section>
     </div>
 
+    ${renderMagazinePanel(magazineIssues)}
+
     <!-- ONGLET 4 : TESTS SMS & SÉCURITÉ -->
     <div id="panel-settings" class="tab-panel">
       <section class="admin-card">
@@ -1955,13 +1976,15 @@ function renderDashboardHTML(clients, recentReviews, recentLeads, recentAppointm
           <div class="field"><label>URL Vidéo entrevue</label><input type="url" name="interview_video_url" id="edit-interview_video_url"></div>
           <div class="field"><label>URL Photo couverture principale</label><input type="url" name="cover_photo_url" id="edit-cover_photo_url"></div>
         </div>
-        <div class="field" style="margin-top:12px;"><label>Adresse publique ou zone géographique précise</label><input name="public_address" id="edit-public_address"></div>
+        <div class="field" style="margin-top:12px;"><label>Adresse de l’établissement</label><input name="public_address" id="edit-public_address"></div>
+        <label class="check-row"><input type="checkbox" name="show_public_address" id="edit-show_public_address" value="1"> Autoriser l’affichage de l’adresse sur le répertoire public</label>
         <div class="field-grid" style="margin-top:12px;">
           <div class="field"><label>Site web</label><input type="url" name="social_website" id="edit-social_website"></div>
           <div class="field"><label>Facebook</label><input type="url" name="social_facebook" id="edit-social_facebook"></div>
           <div class="field"><label>Instagram</label><input type="url" name="social_instagram" id="edit-social_instagram"></div>
           <div class="field"><label>LinkedIn</label><input type="url" name="social_linkedin" id="edit-social_linkedin"></div>
           <div class="field"><label>TikTok</label><input type="url" name="social_tiktok" id="edit-social_tiktok"></div>
+          <div class="field"><label>YouTube</label><input type="url" name="social_youtube" id="edit-social_youtube"></div>
         </div>
         <div class="field" style="margin-top:12px;"><label>Texte narratif du publireportage</label><textarea name="advertorial_text" id="edit-advertorial_text" rows="3"></textarea></div>
         <div class="field" style="margin-top:12px;"><label>Consignes Setters</label><input name="booking_notes" id="edit-booking_notes"></div>

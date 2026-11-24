@@ -1,3 +1,4 @@
+import {handleDirectoryPublic} from './directory-public.js';
 // ============================================================================
 // PONT DIGITAL — SITE PUBLIC WORKER (/pontdigital)
 // Domaine : pontdigital.nyxia.top
@@ -8,20 +9,9 @@ export default {
     const url = new URL(request.url);
     const path = url.pathname;
 
-    // 1. Liste publique des entreprises partenaires actives (lecture seule D1)
-    if (path === '/api/public/clients' && request.method === 'GET') {
-      try {
-        if (!env.DB) return json({ ok: true, clients: [] });
-        const { results } = await env.DB.prepare(`
-          SELECT id, business_name, city, category, phone, heyzine_url, interview_video_url, cover_photo_url
-          FROM clients
-          WHERE status IS NULL OR status = 'active' OR status = 'actif'
-          ORDER BY created_at DESC
-        `).all();
-        return json({ ok: true, clients: results || [] });
-      } catch (_) {
-        return json({ ok: true, clients: [] });
-      }
+    // Repertoire public : consultation seule, aucun secret Google transmis
+    if (path.startsWith('/api/public/') || /^\/entreprise\/\d+$/.test(path)) {
+      return handleDirectoryPublic(request,env);
     }
 
     // 2. Conversation vivante avec NyXia (bulle bas à droite)

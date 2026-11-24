@@ -5,6 +5,7 @@
 
 var GBP_DAYS = ['MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY', 'SUNDAY'];
 var gbpLoadRequestSeq = 0;
+var gbpNyxiaRequestSeq = 0;
 
 function switchTab(tabId) {
   document.querySelectorAll('.tab-btn').forEach(function (btn) {
@@ -36,6 +37,7 @@ function openEditModal(c) {
   document.getElementById('edit-services').value = c.services || '';
   document.getElementById('edit-service_areas').value = c.service_areas || '';
   document.getElementById('edit-public_address').value = c.public_address || '';
+  document.getElementById('edit-show_public_address').checked = Boolean(Number(c.show_public_address));
   document.getElementById('edit-advertorial_text').value = c.advertorial_text || '';
   var socials = {};
   try {
@@ -46,6 +48,7 @@ function openEditModal(c) {
   document.getElementById('edit-social_instagram').value = socials.instagram || '';
   document.getElementById('edit-social_linkedin').value = socials.linkedin || '';
   document.getElementById('edit-social_tiktok').value = socials.tiktok || '';
+  document.getElementById('edit-social_youtube').value = socials.youtube || '';
   document.getElementById('edit-phone').value = c.phone || '';
   document.getElementById('edit-client_email').value = c.client_email || '';
   document.getElementById('edit-booking_calendar_url').value = c.booking_calendar_url || '';
@@ -143,8 +146,38 @@ function clearDayHours(dayCode) {
 
 function resetProfileLoadedState() {
   gbpLoadRequestSeq += 1;
+  gbpNyxiaRequestSeq += 1;
+
   var flag = document.getElementById('profile-loaded-flag');
   if (flag) flag.value = '0';
+
+  var clearConfirm = document.getElementById('confirm-clear-special-hours');
+  if (clearConfirm) clearConfirm.value = '0';
+
+  // Réinitialiser tous les champs texte pour éviter toute fuite entre deux commerçants
+  ['profile-description', 'profile-services', 'profile-service-areas', 'profile-categories', 'profile-notes'].forEach(function (id) {
+    var el = document.getElementById(id);
+    if (el) el.value = '';
+  });
+
+  // Décocher toutes les cases de publication
+  ['apply-description', 'apply-hours', 'apply-special-hours'].forEach(function (id) {
+    var chk = document.getElementById(id);
+    if (chk) chk.checked = false;
+  });
+
+  // Débloquer les boutons si un chargement précédent était encore en cours
+  var loadBtn = document.getElementById('btn-load-gbp');
+  if (loadBtn) {
+    loadBtn.disabled = false;
+    loadBtn.textContent = '🔄 Charger la fiche Google actuelle';
+  }
+  var nyxiaBtn = document.getElementById('btn-nyxia-profile');
+  if (nyxiaBtn) {
+    nyxiaBtn.disabled = false;
+    nyxiaBtn.textContent = '✨ Générer Description, Catégories & Services avec NyXia';
+  }
+
   var status = document.getElementById('profile-load-status');
   if (status) {
     status.style.color = 'var(--text-muted)';
@@ -283,7 +316,8 @@ async function loadCurrentGoogleProfile() {
 }
 
 async function draftProfileWithNyxia() {
-  var clientId = document.getElementById('profile-client-select').value;
+  var select = document.getElementById('profile-client-select');
+  var clientId = select.value;
   var notes = document.getElementById('profile-notes').value;
   var btn = document.getElementById('btn-nyxia-profile');
 
@@ -292,7 +326,8 @@ async function draftProfileWithNyxia() {
     return;
   }
 
-  var oldLabel = btn.textContent;
+  var reqSeq = ++gbpNyxiaRequestSeq;
+  var defaultLabel = '✨ Générer Description, Catégories & Services avec NyXia';
   btn.disabled = true;
   btn.textContent = '⏳ NyXia optimise la fiche Google...';
 
@@ -303,6 +338,12 @@ async function draftProfileWithNyxia() {
       body: JSON.stringify({ client_id: clientId, notes: notes })
     });
     var data = await res.json();
+
+    // PROTECTION CHANGEMENT RAPIDE : ignorer toute réponse IA qui ne correspond plus au client sélectionné
+    if (reqSeq !== gbpNyxiaRequestSeq || select.value !== clientId) {
+      return;
+    }
+
     if (data.description) {
       document.getElementById('profile-description').value = data.description;
       document.getElementById('apply-description').checked = true;
@@ -310,10 +351,14 @@ async function draftProfileWithNyxia() {
     if (data.categories) document.getElementById('profile-categories').value = data.categories;
     if (data.services) document.getElementById('profile-services').value = data.services;
   } catch (_) {
-    alert('Erreur lors de la génération par NyXia.');
+    if (reqSeq === gbpNyxiaRequestSeq && select.value === clientId) {
+      alert('Erreur lors de la génération par NyXia.');
+    }
   } finally {
-    btn.disabled = false;
-    btn.textContent = oldLabel;
+    if (reqSeq === gbpNyxiaRequestSeq) {
+      btn.disabled = false;
+      btn.textContent = defaultLabel;
+    }
   }
 }
 
@@ -325,7 +370,9 @@ function confirmProfileUpdate(event) {
     return false;
   }
 
-  serializeSpecialHours();
+  var specialList = serializeSpecialHours();
+  var clearConfirmInput = document.getElementById('confirm-clear-special-hours');
+  if (clearConfirmInput) clearConfirmInput.value = '0';
 
   var applyDesc = document.getElementById('apply-description').checked;
   var applyHours = document.getElementById('apply-hours').checked;
@@ -343,7 +390,24 @@ function confirmProfileUpdate(event) {
     }
     sections.push('• Horaires réguliers (jour par jour)');
   }
-  if (applySpecial) sections.push('• Horaires spéciaux (jours fériés / congés)');
+  if (applySpecial) {
+    if (specialList.length === 0) {
+      var okClear = confirm(
+        '⚠️ SUPPRESSION DES HORAIRES SPÉCIAUX\n\n' +
+        'Tu as coché « Publier ces horaires spéciaux » avec une liste VIDE.\n' +
+        'Cela va EFFACER tous les horaires spéciaux (jours fériés / congés) sur la fiche Google de :\n' +
+        selectedText + '\n\nConfirmes-tu vouloir supprimer tous les horaires spéciaux ?'
+      );
+      if (!okClear) {
+        if (event) event.preventDefault();
+        return false;
+      }
+      if (clearConfirmInput) clearConfirmInput.value = '1';
+      sections.push('• Horaires spéciaux : SUPPRESSION CONFIRMÉE (liste vide)');
+    } else {
+      sections.push('• Horaires spéciaux (' + specialList.length + ' date(s))');
+    }
+  }
 
   if (sections.length === 0) {
     var hasD1 = (document.getElementById('profile-services').value || '').trim() ||

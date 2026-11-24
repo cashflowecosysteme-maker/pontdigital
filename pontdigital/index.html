@@ -1,164 +1,63 @@
-<!DOCTYPE html>
-<html lang="fr">
+<!doctype html>
+<html lang="fr-CA">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Pont Digital — Visibilité Google, IA (GEO) &amp; Revue Interactive au Québec</title>
-  <meta name="description" content="Les Pages Jaunes sont révolues et un site web isolé est invisible. Pont Digital propulse votre fiche Google Business, votre revue interactive et vos rendez-vous qualifiés.">
-  <link rel="icon" type="image/png" href="/images/FavIcon.png">
-  <link rel="apple-touch-icon" href="/images/FavIcon.png">
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Pont Digital | Revue et répertoire des entreprises du Québec</title>
+  <meta name="description" content="Découvrez la revue interactive Pont Digital et trouvez des commerces, des artisans et des professionnels partout au Québec, par ville, métier et service.">
+  <meta name="robots" content="index,follow">
+  <link rel="canonical" href="https://pontdigital.nyxia.top/">
+  <link rel="icon" href="/images/FavIcon.png">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@600;700&family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/css/index.css">
   <link rel="stylesheet" href="/css/nyxia-widget.css">
+  <link rel="stylesheet" href="/css/repertoire.css">
 </head>
 <body>
-  <canvas id="starry-canvas"></canvas>
-  <div class="aura"></div>
-
+  <canvas id="starry-canvas" aria-hidden="true"></canvas><div class="aura" aria-hidden="true"></div>
   <header class="site-header">
-    <a href="#" class="brand">
-      <img src="/images/FavIcon.png" alt="Pont Digital">
-      <div class="brand-name">
-        <b>PONT DIGITAL</b>
-        <span>Agence Marketing • Google • IA </span>
-      </div>
+    <a href="/" class="brand" aria-label="Pont Digital — Accueil">
+      <img src="/images/FavIcon.png" alt="">
+      <span class="brand-name"><b>PONT DIGITAL</b><span>Les entreprises du Québec à découvrir</span></span>
     </a>
-    <nav class="main-nav">
-      <a href="#constat">Le constat</a>
-      <a href="#methode">Notre solution</a>
-      <a href="#revue">La Revue</a>
-      <a href="#partenaires">Entreprises</a>
-    </nav>
-    <a href="#" class="btn-primary js-booking-link" target="_blank" rel="noopener">Réserver mon appel découverte</a>
+    <nav class="main-nav" aria-label="Navigation principale"><a href="#revue">La revue</a><a href="#repertoire">Répertoire</a><a href="#archives">Archives</a><a href="/index2.html">Services de l'agence</a></nav>
+    <a href="/index2.html" class="header-agency">Vous êtes entrepreneur ? <span>Découvrez nos services ↗</span></a>
   </header>
-
-  <main class="page-wrap">
-    <section class="hero">
-      <span class="eyebrow">Agence de visibilité locale clé en main • Québec</span>
-      <h1 class="display hero-title">
-        Les Pages Jaunes sont révolues.<br>
-        Un site web isolé est devenu invisible.<br>
-        <span>Si ce n'est pas vous sur Google, c'est votre compétiteur.</span>
-      </h1>
-      <p class="hero-sub">
-        Aujourd'hui, vos clients sortent leur téléphone et demandent directement à <strong>Google</strong> et à <strong>l'Intelligence Artificielle</strong> qui appeler maintenant dans leur ville. Une fiche Google négligée laisse littéralement vos contrats sur la table.
-      </p>
-      <div class="hero-cta-group">
-        <a href="#" class="btn-gold js-booking-link" target="_blank" rel="noopener">📅 Réserver mon diagnostic visibilité gratuit</a>
-        <a href="#constat" class="btn-ghost">Comprendre pourquoi tout a changé ↓</a>
-      </div>
-      <div class="trust-strip">
-        <div><strong>+88 000</strong><span>Entrepreneurs &amp; décideurs touchés</span></div>
-        <div><strong>100 %</strong><span>Clé en main — zéro technique pour vous</span></div>
-        <div><strong>SEO + GEO</strong><span>Visible sur Google Maps et recommandé par l'IA</span></div>
-      </div>
+  <main class="page-wrap directory-home">
+    <section class="directory-intro" aria-labelledby="directory-title">
+      <span class="eyebrow">Le Québec a du talent. Découvrons-le.</span>
+      <h1 id="directory-title" class="display">La revue et le <em>répertoire</em> des entreprises d'ici</h1>
+      <p>Des visages, des histoires et des savoir-faire. Feuilletez la revue du mois, puis trouvez un commerce ou un professionnel dans votre région.</p>
     </section>
-
-    <section id="constat" class="section-block">
-      <div class="section-head">
-        <span class="eyebrow">La réalité du marché actuel</span>
-        <h2 class="display">Pourquoi votre fiche Google remplace l'ancien site web et le bottin</h2>
-        <p>Vous n'avez pas besoin de comprendre l'informatique : il suffit de regarder comment vos clients achètent aujourd'hui.</p>
-      </div>
-
-      <div class="compare-grid">
-        <article class="glass-card card-muted">
-          <div class="card-tag tag-warn">L'ancien réflexe (qui coûte cher)</div>
-          <h3>Pages Jaunes, Facebook &amp; Site web statique</h3>
-          <ul class="check-list cross">
-            <li><strong>Le bottin papier ou en ligne :</strong> Une vitrine figée une fois par année que personne ne consulte avec urgence.</li>
-            <li><strong>Facebook :</strong> Vous interrompez des gens qui regardent des photos de famille — ils ne cherchent pas vos services à cet instant.</li>
-            <li><strong>Un site web laissé seul :</strong> Sans trafic ni preuve sociale vivante, personne ne tombe dessus par hasard.</li>
-            <li><strong>Fiche Google abandonnée :</strong> Pas d'avis récents, aucune publication = Google vous cache derrière vos concurrents.</li>
-          </ul>
-        </article>
-
-        <article class="glass-card card-highlight">
-          <div class="card-tag tag-ok">La réalité Pont Digital</div>
-          <h3>Google Maps, IA (GEO) &amp; Intention immédiate</h3>
-          <ul class="check-list ok">
-            <li><strong>Le client a déjà son portefeuille en main :</strong> Celui qui cherche votre métier sur Google veut régler son problème <em>maintenant</em>.</li>
-            <li><strong>Votre fiche Google est votre vrai site n°1 :</strong> C'est la première chose que le client regarde (avis, photos, conseils, appel en 1 clic).</li>
-            <li><strong>SEO + GEO (Intelligence Artificielle) :</strong> Quand on demande à Gemini ou ChatGPT qui recommander dans votre ville, c'est votre nom qui sort.</li>
-            <li><strong>Zéro gestion pour vous :</strong> Vous travaillez sur le terrain pendant que nous animons votre vitrine chaque semaine.</li>
-          </ul>
-        </article>
-      </div>
-    </section>
-
-    <section id="methode" class="section-block">
-      <div class="section-head">
-        <span class="eyebrow">Tout sous un seul toit</span>
-        <h2 class="display">Comment Pont Digital remplit votre agenda sans vous faire toucher un ordinateur</h2>
-      </div>
-
-      <div class="pillars-grid">
-        <article class="glass-card">
-          <div class="pillar-num">01</div>
-          <h3>Animation Google Business, SEO &amp; GEO</h3>
-          <p>Nous transformons votre fiche Google en aimant à clients : publications éducatives utiles liées à votre métier, réponses stratégiques à tous vos avis et gestion possible de vos campagnes Google Ads ciblées.</p>
-        </article>
-
-        <article class="glass-card">
-          <div class="pillar-num">02</div>
-          <h3>Publireportage Interactif &amp; Force de Frappe</h3>
-          <p>Chaque mois, votre entreprise brille dans notre revue interactive (vidéo, carte Google Maps intégrée et formulaire direct), diffusée devant plus de <strong>88 000 entrepreneurs et contacts d'affaires</strong> au Québec.</p>
-        </article>
-
-        <article class="glass-card">
-          <div class="pillar-num">03</div>
-          <h3>Équipe Appointment Setting &amp; Réseau</h3>
-          <p>Lorsqu'un prospect remplit le formulaire sur votre page, notre équipe est alertée instantanément, qualifie la demande et inscrit le rendez-vous directement dans votre agenda Google.</p>
-        </article>
-      </div>
-    </section>
-
-    <section id="revue" class="section-block">
-      <div class="glass-card revue-banner">
-        <div>
-          <span class="eyebrow">Publication mensuelle • +88 000 contacts</span>
-          <h2 class="display">La Revue Interactive des Entrepreneurs du Québec</h2>
-          <p>Bien plus qu'une publicité : un portrait vivant où vos futurs clients découvrent votre histoire, regardent votre entrevue, localisent votre entreprise sur Google Maps et réservent leur rendez-vous sur place.</p>
-          <div style="margin-top:20px;display:flex;gap:12px;flex-wrap:wrap;">
-            <a href="#" class="btn-gold js-booking-link" target="_blank" rel="noopener">Paraître dans la prochaine édition →</a>
-          </div>
+    <section id="revue" class="magazine-section" aria-labelledby="magazine-title">
+      <div class="section-heading-row"><div><span class="eyebrow">À la une</span><h2 id="magazine-title" class="display">La revue interactive du mois</h2></div><span class="edition-chip" id="current-edition-label">Édition à venir</span></div>
+      <div class="magazine-shell glass-card">
+        <div id="magazine-stage" class="magazine-stage" aria-live="polite">
+          <div class="magazine-empty"><span class="magazine-monogram">PD</span><h3>Notre prochaine édition arrive</h3><p>La revue sera feuilletable ici dès qu'une édition aura été publiée par l'agence.</p></div>
         </div>
-        <div class="revue-preview-box">
-          <div class="revue-badge">Édition Mensuelle</div>
-          <p class="display" style="font-size:1.55rem;color:#fff;margin:10px 0 6px;">Votre entreprise au cœur de l'action</p>
-          <p style="font-size:.88rem;color:var(--text-secondary);">Diffusée chaque mois sur <em>Les Entrepreneurs Passionnés du Québec</em> (30k+), notre réseau <em>CashFlow</em> (33k+) et <em>LinkedIn</em> (25k+).</p>
+        <div class="magazine-info"><div><p id="magazine-description">Découvrez les entrepreneurs, commerçants et artisans du Québec.</p></div><a id="magazine-open" class="btn-gold" href="#" target="_blank" rel="noopener noreferrer" hidden>Ouvrir la revue ↗</a></div>
+      </div>
+      <div id="archives" class="archive-section" hidden><div class="archive-head"><h3>Les éditions précédentes</h3><span>Explorez nos archives mensuelles</span></div><div class="archive-list" id="archive-list"></div></div>
+    </section>
+    <section id="repertoire" class="directory-section" aria-labelledby="search-title">
+      <div class="section-heading-row search-header"><div><span class="eyebrow">Un réseau à découvrir</span><h2 id="search-title" class="display">Trouvez une entreprise près de chez vous</h2><p>Recherchez par municipalité, métier, produit ou service. Vous pouvez combiner les trois.</p></div></div>
+      <form id="directory-search" class="search-shell glass-card" role="search">
+        <div class="search-fields">
+          <label>Ville ou municipalité du Québec<input type="search" id="filter-city" list="city-options" placeholder="Ex. : Saint-Calixte" autocomplete="off"><datalist id="city-options"></datalist></label>
+          <label>Métier ou secteur<select id="filter-category"><option value="">Tous les métiers et commerces</option></select></label>
+          <label>Mot-clé, produit ou service<input type="search" id="filter-keyword" placeholder="Ex. : coloration, toiture, brunch…"></label>
         </div>
-      </div>
+        <div class="search-actions"><span id="city-source-status" class="search-note">Référentiel des municipalités en préparation…</span><div><button type="reset" class="btn-ghost">Effacer</button><button type="submit" class="btn-gold">⌕ Rechercher</button></div></div>
+      </form>
+      <div class="listing-toolbar"><div><h3>Les entreprises du réseau</h3><p id="result-count" aria-live="polite">Chargement des fiches…</p></div><span class="listing-context">Commerces · Artisans · Professionnels</span></div>
+      <div id="directory-results" class="directory-grid" aria-live="polite"><div class="results-status">Chargement du répertoire…</div></div>
+      <div class="pagination-row"><button type="button" id="show-more" class="btn-ghost" hidden>Voir plus d'entreprises</button></div>
     </section>
-
-    <section id="partenaires" class="section-block">
-      <div class="section-head">
-        <span class="eyebrow">Réseau Pont Digital</span>
-        <h2 class="display">Entreprises propulsées par notre écosystème</h2>
-        <p>Découvrez les entrepreneurs locaux qui ont choisi d'occuper la première place sur Google et dans notre revue.</p>
-      </div>
-      <div id="partners-grid" class="partners-grid">
-        <p class="loading-text">Chargement des entreprises partenaires...</p>
-      </div>
-    </section>
-
-    <section class="section-block">
-      <div class="glass-card final-cta">
-        <img src="/images/NyXia.png" alt="NyXia • Pont Digital" class="nyxia-portrait">
-        <span class="eyebrow">Discussion sans engagement</span>
-        <h2 class="display">Regardons ensemble ce que voient vos clients quand ils vous cherchent sur Google</h2>
-        <p>Pas de discours technique compliqué ni de forfait standard imposé à l'aveugle : prenons 20 minutes pour analyser votre secteur, voir où se trouvent vos compétiteurs et bâtir une stratégie adaptée à votre réalité.</p>
-        <a href="#" class="btn-gold js-booking-link" target="_blank" rel="noopener" style="font-size:1rem;padding:14px 28px;">📅 Planifier mon appel découverte maintenant</a>
-      </div>
-    </section>
+    <section class="agency-footer-cta glass-card"><div><span class="eyebrow">Pour les entrepreneurs</span><h2 class="display">Votre entreprise mérite elle aussi d'être découverte.</h2><p>Notre agence s'occupe de l'entretien de votre présence Google Business Profile en Done For You. Découvrez nos services de visibilité locale.</p></div><a class="btn-gold" href="/index2.html">Découvrir Pont Digital ↗</a></section>
   </main>
-
-  <footer class="site-footer">
-    <p>© 2026 <strong>Pont Digital</strong> — Agence de visibilité Google, GEO &amp; Revue Interactive au Québec.</p>
-  </footer>
-
+  <footer class="site-footer"><p>© 2026 <strong>Pont Digital</strong> — Revue interactive et répertoire d'entreprises du Québec. <a href="/index2.html">Services de l'agence</a></p></footer>
   <!-- BULLE VIVANTE NYXIA (BAS À DROITE) -->
   <div id="nyxia-dock" class="nyxia-dock" aria-live="polite">
     <div id="nyxia-panel" class="nyxia-panel" role="dialog" aria-label="Discussion avec NyXia">
@@ -195,8 +94,9 @@
     </button>
   </div>
 
+
   <script src="/js/starry-bg.js" defer></script>
   <script src="/js/app.js" defer></script>
+  <script src="/js/repertoire.js" defer></script>
   <script src="/js/nyxia-widget.js" defer></script>
-</body>
-</html>
+</body></html>
