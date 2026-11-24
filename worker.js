@@ -1,5 +1,9 @@
 import publicSiteWorker from './pontdigital/worker.js';
-import { handleNyxiaDraftProfileApi, handleUpdateGoogleProfileRoute } from './gbp-profile.js';
+import {
+  handleReadGoogleProfileApi,
+  handleNyxiaDraftProfileApi,
+  handleUpdateGoogleProfileRoute
+} from './gbp-profile.js';
 
 // ============================================================================
 // PONT DIGITAL — SUPER ADMIN WORKER MODULAIRE (CLOUDFLARE WORKERS + D1)
@@ -119,6 +123,9 @@ export default {
       if (path === '/api/google/reply-review' && request.method === 'POST') {
         return handleReplyReviewWithNyxiaRoute(request, env);
       }
+      if (path === '/api/google/read-profile' && request.method === 'GET') {
+        return handleReadGoogleProfileApi(request, env, getGoogleAccessToken, jsonResponse);
+      }
       if (path === '/api/google/update-profile' && request.method === 'POST') {
         return handleUpdateGoogleProfileRoute(request, env, getGoogleAccessToken);
       }
@@ -211,7 +218,7 @@ export default {
 };
 
 // ============================================================================
-// BASE DE DONNÉES D1 (SCHÉMA EXACT WORKER 1)
+// BASE DE DONNÉES D1 (SCHÉMA EXACT + MIGRATIONS NON-DESTRUCTIVES)
 // ============================================================================
 
 async function ensureDatabaseReady(db) {
@@ -223,6 +230,10 @@ async function ensureDatabaseReady(db) {
         business_name TEXT NOT NULL,
         city TEXT NOT NULL,
         category TEXT NOT NULL,
+        services TEXT,
+        service_areas TEXT,
+        gbp_description TEXT,
+        gbp_hours_json TEXT,
         phone TEXT,
         client_email TEXT,
         booking_calendar_url TEXT,
@@ -304,6 +315,10 @@ async function ensureDatabaseReady(db) {
     'ALTER TABLE clients ADD COLUMN client_email TEXT',
     'ALTER TABLE clients ADD COLUMN booking_calendar_url TEXT',
     'ALTER TABLE clients ADD COLUMN booking_notes TEXT',
+    'ALTER TABLE clients ADD COLUMN services TEXT',
+    'ALTER TABLE clients ADD COLUMN service_areas TEXT',
+    'ALTER TABLE clients ADD COLUMN gbp_description TEXT',
+    'ALTER TABLE clients ADD COLUMN gbp_hours_json TEXT',
     "ALTER TABLE google_posts ADD COLUMN topic_type TEXT DEFAULT 'STANDARD'",
     'ALTER TABLE google_posts ADD COLUMN media_url TEXT',
     "ALTER TABLE heyzine_leads ADD COLUMN handling_status TEXT DEFAULT 'nouveau'"
@@ -487,18 +502,8 @@ async function handleReplyReviewWithNyxiaRoute(request, env) {
     });
 
     const accessToken = await getGoogleAccessToken(row.google_refresh_token, env);
-    let accountName = row.google_account_name;
-    let locationName = row.google_location_name;
-    if (!accountName || !locationName) {
-      const allLocs = await listAllGoogleLocations(accessToken);
-      if (allLocs.length > 0) {
-        accountName = allLocs[0].accountName;
-        locationName = allLocs[0].locationName;
-      }
-    }
-
-    const fullResource = normalizeFullLocationResource(accountName, locationName);
-    if (!fullResource) return Response.redirect(new URL('/?msg=google_api_error', request.url), 302);
+    const fullResource = normalizeFullLocationResource(row.google_account_name, row.google_location_name);
+    if (!fullResource) return Response.redirect(new URL('/?msg=google_location_required', request.url), 302);
 
     const cleanReviewId = row.review_id.includes('/reviews/') ? row.review_id.split('/reviews/').pop() : row.review_id;
     const googleReplyRes = await fetch(
@@ -907,19 +912,8 @@ async function handleSyncReviewsRoute(request, env) {
 
 async function syncReviewsForClient(client, env) {
   const accessToken = await getGoogleAccessToken(client.google_refresh_token, env);
-  let accountName = client.google_account_name;
-  let locationName = client.google_location_name;
-  if (!accountName || !locationName) {
-    const allLocs = await listAllGoogleLocations(accessToken);
-    if (allLocs.length > 0) {
-      accountName = allLocs[0].accountName;
-      locationName = allLocs[0].locationName;
-      await env.DB.prepare(`UPDATE clients SET google_account_name = ?, google_location_name = ?, google_location_title = ?, google_place_id = COALESCE(?, google_place_id) WHERE id = ?`)
-        .bind(accountName, locationName, allLocs[0].title, allLocs[0].placeId, client.id).run();
-    }
-  }
-  const fullResource = normalizeFullLocationResource(accountName, locationName);
-  if (!fullResource) throw new Error('Aucun établissement Google trouvé.');
+  const fullResource = normalizeFullLocationResource(client.google_account_name, client.google_location_name);
+  if (!fullResource) throw new Error('Aucun établissement Google associé à ce client.');
 
   const reviewsRes = await fetch(`https://mybusiness.googleapis.com/v4/${fullResource}/reviews?pageSize=50`, {
     headers: { Authorization: `Bearer ${accessToken}` }
@@ -949,7 +943,7 @@ async function syncReviewsForClient(client, env) {
 
 async function syncAllConnectedClientsReviews(env) {
   await ensureDatabaseReady(env.DB);
-  const { results: clients } = await env.DB.prepare('SELECT * FROM clients WHERE google_refresh_token IS NOT NULL').all();
+  const { results: clients } = await env.DB.prepare('SELECT * FROM clients WHERE google_refresh_token IS NOT NULL AND google_location_name IS NOT NULL').all();
   for (const client of clients) {
     try { await syncReviewsForClient(client, env); } catch (_) {}
   }
@@ -978,22 +972,14 @@ async function handleCreateGooglePostRoute(request, env) {
   const client = await env.DB.prepare('SELECT * FROM clients WHERE id = ?').bind(clientId).first();
   if (!client || !client.google_refresh_token) return Response.redirect(new URL('/?msg=google_not_connected', request.url), 302);
 
+  const fullResource = normalizeFullLocationResource(client.google_account_name, client.google_location_name);
+  if (!fullResource) return Response.redirect(new URL('/?msg=google_location_required', request.url), 302);
+
   if (!ctaUrl && client.heyzine_url) ctaUrl = client.heyzine_url;
   if (!mediaUrl && useClientCover && client.cover_photo_url) mediaUrl = client.cover_photo_url;
 
   try {
     const accessToken = await getGoogleAccessToken(client.google_refresh_token, env);
-    let accountName = client.google_account_name;
-    let locationName = client.google_location_name;
-    if (!accountName || !locationName) {
-      const allLocs = await listAllGoogleLocations(accessToken);
-      if (allLocs.length > 0) {
-        accountName = allLocs[0].accountName;
-        locationName = allLocs[0].locationName;
-      }
-    }
-    const fullResource = normalizeFullLocationResource(accountName, locationName);
-    if (!fullResource) return Response.redirect(new URL('/?msg=google_api_error', request.url), 302);
 
     const postBody = { languageCode: 'fr-CA', summary, topicType };
     if (topicType === 'EVENT' || topicType === 'OFFER') {
@@ -1079,10 +1065,12 @@ async function handleAddClient(request, env) {
 
   const galleryJson = JSON.stringify((formData.get('gallery_urls') || '').split(',').map(s => s.trim()).filter(Boolean).slice(0, 5));
   await env.DB.prepare(`
-    INSERT INTO clients (business_name, city, category, phone, client_email, booking_calendar_url, booking_notes, heyzine_url, interview_video_url, cover_photo_url, gallery_urls)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO clients (business_name, city, category, services, service_areas, phone, client_email, booking_calendar_url, booking_notes, heyzine_url, interview_video_url, cover_photo_url, gallery_urls)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).bind(
     businessName, city, category,
+    (formData.get('services') || '').trim(),
+    (formData.get('service_areas') || '').trim(),
     (formData.get('phone') || '').trim(),
     (formData.get('client_email') || '').trim(),
     (formData.get('booking_calendar_url') || '').trim(),
@@ -1106,11 +1094,13 @@ async function handleUpdateClientFull(request, env) {
 
   const galleryJson = JSON.stringify((formData.get('gallery_urls') || '').split(',').map(s => s.trim()).filter(Boolean).slice(0, 5));
   await env.DB.prepare(`
-    UPDATE clients SET business_name = ?, city = ?, category = ?, phone = ?, client_email = ?,
+    UPDATE clients SET business_name = ?, city = ?, category = ?, services = ?, service_areas = ?, phone = ?, client_email = ?,
       booking_calendar_url = ?, booking_notes = ?, heyzine_url = ?, interview_video_url = ?, cover_photo_url = ?, gallery_urls = ?
     WHERE id = ?
   `).bind(
     businessName, city, category,
+    (formData.get('services') || '').trim(),
+    (formData.get('service_areas') || '').trim(),
     (formData.get('phone') || '').trim(),
     (formData.get('client_email') || '').trim(),
     (formData.get('booking_calendar_url') || '').trim(),
@@ -1304,6 +1294,28 @@ function renderSelectLocationHTML(client, locations) {
 </html>`;
 }
 
+function renderHoursTableRows() {
+  const days = [
+    ['MONDAY', 'Lundi'],
+    ['TUESDAY', 'Mardi'],
+    ['WEDNESDAY', 'Mercredi'],
+    ['THURSDAY', 'Jeudi'],
+    ['FRIDAY', 'Vendredi'],
+    ['SATURDAY', 'Samedi'],
+    ['SUNDAY', 'Dimanche']
+  ];
+  return days.map(([code, label]) => `
+    <tr>
+      <td style="font-weight:600;color:#fff;white-space:nowrap;">${label}</td>
+      <td><input type="time" id="day_${code}_open1" name="day_${code}_open1" value=""></td>
+      <td><input type="time" id="day_${code}_close1" name="day_${code}_close1" value=""></td>
+      <td><input type="time" id="day_${code}_open2" name="day_${code}_open2" value=""></td>
+      <td><input type="time" id="day_${code}_close2" name="day_${code}_close2" value=""></td>
+      <td><button type="button" class="btn-sm btn-ghost" onclick="clearDayHours('${code}')">Fermé</button></td>
+    </tr>
+  `).join('');
+}
+
 function renderDashboardHTML(clients, recentReviews, recentLeads, recentAppointments, msg, origin) {
   const alerts = {
     pwd_updated: 'Mot de passe interne mis à jour avec succès dans D1.',
@@ -1311,17 +1323,19 @@ function renderDashboardHTML(clients, recentReviews, recentLeads, recentAppointm
     client_added: 'Entrepreneur ajouté à la base D1 Pont Digital.',
     media_updated: 'Fiche entrepreneur, Agenda Workspace & Médias mis à jour !',
     client_deleted: 'Fiche entrepreneur supprimée.',
-    error_fields: 'Veuillez remplir les champs obligatoires.',
+    error_fields: 'Veuillez remplir les champs obligatoires ou cocher au moins une section à mettre à jour.',
     google_connected: 'Fiche Google Business Profile connectée avec succès !',
     google_location_assigned: 'Établissement Google Agence associé avec succès !',
-    google_location_required: 'Sécurité multi-fiches : associe d’abord la fiche Google précise de cet entrepreneur (« Changer fiche ») avant toute modification.',
+    google_location_required: 'Sécurité multi-fiches : associe d’abord la fiche Google précise de cet entrepreneur (« Changer fiche ») avant toute action Google.',
     google_oauth_error: 'La connexion Google Business Profile a échoué ou a été annulée.',
     google_missing_keys: 'Configuration requise : ajoute GOOGLE_CLIENT_ID et GOOGLE_CLIENT_SECRET dans Cloudflare.',
     google_not_connected: 'Connecte d’abord la fiche Google GBP de ce client.',
     reviews_synced: 'Avis Google synchronisés et enregistrés dans D1 !',
     review_replied: 'Réponse rédigée par NyXia et publiée sur Google Maps !',
     post_published: 'Publication diffusée sur la fiche Google Business Profile du client !',
-    profile_updated: 'Fiche Google Business Profile (description / horaires) mise à jour en direct !',
+    profile_updated: 'Fiche Google Business Profile mise à jour !',
+    profile_updated_verified: '✓ Fiche Google Business Profile mise à jour, vérifiée après publication et synchronisée dans D1 !',
+    profile_d1_only: 'Services et territoire desservi enregistrés dans D1 pour le répertoire public !',
     google_api_error: 'Erreur de communication avec l’API Google Business Profile.',
     lead_processed: 'Alerte SMS envoyée par NyXia vers ton cellulaire et lead enregistré.',
     lead_status_updated: 'Statut de suivi du lead mis à jour.',
@@ -1335,7 +1349,7 @@ function renderDashboardHTML(clients, recentReviews, recentLeads, recentAppointm
 
   const connectedClients = clients.filter(c => Boolean(c.google_refresh_token));
   const connectedOptions = connectedClients.map(c =>
-    `<option value="${c.id}">${escapeHtml(c.business_name)} (${escapeHtml(c.city)})</option>`
+    `<option value="${c.id}" data-location="${escapeHtml(c.google_location_title || 'Non associée')}">${escapeHtml(c.business_name)} (${escapeHtml(c.city)}) — ${escapeHtml(c.google_location_title || 'Fiche à associer')}</option>`
   ).join('');
 
   const allClientOptions = clients.map(c =>
@@ -1355,6 +1369,8 @@ function renderDashboardHTML(clients, recentReviews, recentLeads, recentAppointm
       business_name: c.business_name || '',
       city: c.city || '',
       category: c.category || '',
+      services: c.services || '',
+      service_areas: c.service_areas || '',
       phone: c.phone || '',
       client_email: c.client_email || '',
       booking_calendar_url: c.booking_calendar_url || '',
@@ -1373,6 +1389,7 @@ function renderDashboardHTML(clients, recentReviews, recentLeads, recentAppointm
             <div>
               <strong style="color:#fff;font-size:.96rem;">${escapeHtml(c.business_name)}</strong> <span style="color:var(--gold);font-size:.75rem;">#${c.id}</span>
               <div style="font-size:.8rem;color:var(--text-muted);">${escapeHtml(c.category)} • ${escapeHtml(c.city)}</div>
+              ${c.service_areas ? `<div style="font-size:.75rem;color:var(--primary-light);">📍 ${escapeHtml(c.service_areas)}</div>` : ''}
               <div style="font-size:.76rem;color:var(--text-secondary);">${c.rdv_count || 0} RDV • ${c.lead_count || 0} leads • ${c.review_count || 0} avis • ${photosCount} photo(s)</div>
             </div>
           </div>
@@ -1529,9 +1546,11 @@ function renderDashboardHTML(clients, recentReviews, recentLeads, recentAppointm
         <h2 class="display" style="font-size:1.75rem;color:var(--gold);margin-bottom:14px;">+ Ajouter un entrepreneur au réseau Pont Digital</h2>
         <form method="POST" action="/api/clients">
           <div class="field-grid">
-            <div class="field"><label>Nom de l'entreprise *</label><input name="business_name" required placeholder="Ex: Clinique Harmonie"></div>
-            <div class="field"><label>Ville / Région *</label><input name="city" required placeholder="Ex: Terrebonne / Longueuil"></div>
-            <div class="field"><label>Métier / Spécialité *</label><input name="category" required placeholder="Ex: Massothérapie, Toiture, Plomberie..."></div>
+            <div class="field"><label>Nom de l'entreprise *</label><input name="business_name" required placeholder="Ex: Salon Éclat"></div>
+            <div class="field"><label>Ville principale *</label><input name="city" required placeholder="Ex: Saint-Calixte"></div>
+            <div class="field"><label>Catégorie principale *</label><input name="category" required placeholder="Ex: Salon de coiffure"></div>
+            <div class="field"><label>Services précis (moteur de recherche)</label><input name="services" placeholder="Ex: coloration, mèches, coupe homme, coiffure de mariage"></div>
+            <div class="field"><label>Territoire desservi (villes / région)</label><input name="service_areas" placeholder="Ex: Saint-Calixte, Sainte-Julienne, Rawdon, Lanaudière"></div>
             <div class="field"><label>Téléphone public</label><input name="phone" placeholder="514-000-0000"></div>
             <div class="field"><label>Courriel vendeur (invitations RDV)</label><input type="email" name="client_email" placeholder="contact@entreprise.ca"></div>
             <div class="field"><label>Lien Prise de RDV Google Workspace (Setter)</label><input type="url" name="booking_calendar_url" placeholder="https://calendar.app.google/..."></div>
@@ -1682,12 +1701,19 @@ function renderDashboardHTML(clients, recentReviews, recentLeads, recentAppointm
       </section>
 
       <section class="admin-card">
-        <h2 class="display" style="font-size:1.75rem;color:var(--gold);margin-bottom:14px;">Optimisation Fiche Google (Description, Horaires, Catégories &amp; Services)</h2>
-        <form method="POST" action="/api/google/update-profile">
+        <h2 class="display" style="font-size:1.75rem;color:var(--gold);margin-bottom:10px;">Optimisation Fiche Google (Lecture, Description, Horaires &amp; Recherche D1)</h2>
+        <p style="color:var(--text-secondary);font-size:.86rem;margin-bottom:16px;">
+          Charge toujours la fiche Google actuelle avant de modifier les horaires. Aucun horaire par défaut n'est pré-rempli afin d'éviter tout écrasement accidentel.
+        </p>
+
+        <form id="gbp-profile-form" method="POST" action="/api/google/update-profile" onsubmit="return confirmProfileUpdate(event)">
+          <input type="hidden" id="profile-loaded-flag" value="0">
+          <input type="hidden" id="special-hours-json" name="special_hours_json" value="[]">
+
           <div class="field-grid">
             <div class="field">
               <label>Entreprise cible (${connectedClients.length} connectée(s)) *</label>
-              <select id="profile-client-select" name="client_id" required>
+              <select id="profile-client-select" name="client_id" required onchange="resetProfileLoadedState()">
                 <option value="">-- Sélectionner le client GBP --</option>
                 ${connectedOptions}
               </select>
@@ -1699,42 +1725,76 @@ function renderDashboardHTML(clients, recentReviews, recentLeads, recentAppointm
           </div>
 
           <div class="actions-stack" style="margin-top:12px;">
+            <button type="button" id="btn-load-gbp" class="btn-sm btn-ghost" style="padding:10px 16px;" onclick="loadCurrentGoogleProfile()">🔄 Charger la fiche Google actuelle</button>
             <button type="button" id="btn-nyxia-profile" class="btn-sm btn-gold" style="padding:10px 16px;" onclick="draftProfileWithNyxia()">✨ Générer Description, Catégories &amp; Services avec NyXia</button>
           </div>
+          <div id="profile-load-status" style="margin-top:10px;font-size:.84rem;color:var(--text-muted);"></div>
 
-          <div class="field" style="margin-top:14px;">
-            <label>Description officielle Google (max 750 car. — poussée directement sur Google)</label>
-            <textarea id="profile-description" name="description" rows="4" maxlength="750" placeholder="Description SEO/GEO optimisée..."></textarea>
+          <!-- DESCRIPTION -->
+          <div style="margin-top:18px;padding-top:14px;border-top:1px solid var(--border);">
+            <label class="check-row">
+              <input type="checkbox" id="apply-description" name="apply_description" value="1">
+              Publier la description ci-dessous sur Google
+            </label>
+            <div class="field" style="margin-top:8px;">
+              <label>Description officielle Google (max 750 car.)</label>
+              <textarea id="profile-description" name="description" rows="4" maxlength="750" placeholder="Clique sur 🔄 Charger la fiche Google actuelle ou ✨ Générer avec NyXia..."></textarea>
+            </div>
           </div>
 
-          <label class="check-row">
-            <input type="checkbox" name="apply_hours" value="1">
-            Mettre aussi à jour les horaires d'ouverture réguliers sur Google
-          </label>
-          <div class="field-grid" style="margin-top:10px;">
-            <div class="field"><label>Lun–Ven (Ouverture)</label><input type="time" name="week_open" value="09:00"></div>
-            <div class="field"><label>Lun–Ven (Fermeture)</label><input type="time" name="week_close" value="17:00"></div>
-            <div class="field"><label>Samedi (Ouverture — vide si fermé)</label><input type="time" name="sat_open"></div>
-            <div class="field"><label>Samedi (Fermeture)</label><input type="time" name="sat_close"></div>
-            <div class="field"><label>Dimanche (Ouverture — vide si fermé)</label><input type="time" name="sun_open"></div>
-            <div class="field"><label>Dimanche (Fermeture)</label><input type="time" name="sun_close"></div>
+          <!-- HORAIRES RÉGULIERS JOUR PAR JOUR + FRACTIONNÉS -->
+          <div style="margin-top:18px;padding-top:14px;border-top:1px solid var(--border);">
+            <label class="check-row">
+              <input type="checkbox" id="apply-hours" name="apply_hours" value="1">
+              Publier ces horaires réguliers sur Google (vide = fermé ce jour-là)
+            </label>
+            <div class="table-scroll" style="margin-top:10px;">
+              <table class="pd-table">
+                <thead>
+                  <tr>
+                    <th>Jour</th>
+                    <th>Plage 1 — Ouv.</th>
+                    <th>Plage 1 — Ferm.</th>
+                    <th>Plage 2 (fractionné) — Ouv.</th>
+                    <th>Plage 2 (fractionné) — Ferm.</th>
+                    <th>Action</th>
+                  </tr>
+                </thead>
+                <tbody>${renderHoursTableRows()}</tbody>
+              </table>
+            </div>
           </div>
 
-          <div class="field-grid" style="margin-top:14px;">
+          <!-- HORAIRES SPÉCIAUX (NOËL, CONGÉS, ÉVÉNEMENTS) -->
+          <div style="margin-top:18px;padding-top:14px;border-top:1px solid var(--border);">
+            <label class="check-row">
+              <input type="checkbox" id="apply-special-hours" name="apply_special_hours" value="1">
+              Publier ces horaires spéciaux (jours fériés, congés, événements) sur Google
+            </label>
+            <div id="special-hours-list" style="margin-top:10px;display:flex;flex-direction:column;gap:8px;"></div>
+            <button type="button" class="btn-sm btn-ghost" style="margin-top:10px;" onclick="addSpecialHourRow()">+ Ajouter une date spéciale</button>
+          </div>
+
+          <!-- DONNÉES RECHERCHE PUBLIQUE D1 + AIDE NYXIA -->
+          <div class="field-grid" style="margin-top:18px;padding-top:14px;border-top:1px solid var(--border);">
             <div class="field">
-              <label>Catégories recommandées par NyXia (prêt à copier)</label>
+              <label>Services précis (enregistré dans D1 pour la recherche publique)</label>
+              <textarea id="profile-services" name="services_d1" rows="3" placeholder="Ex: coloration, mèches, coupe pour homme, coiffure de mariage..."></textarea>
+              <button type="button" class="btn-sm btn-ghost" style="margin-top:6px;" onclick="copyTextField('profile-services', this)">📋 Copier les services</button>
+            </div>
+            <div class="field">
+              <label>Territoire desservi (enregistré dans D1 pour la recherche publique)</label>
+              <textarea id="profile-service-areas" name="service_areas_d1" rows="3" placeholder="Ex: Saint-Calixte, Sainte-Julienne, Rawdon, Lanaudière..."></textarea>
+            </div>
+            <div class="field">
+              <label>Catégories recommandées par NyXia (prêt à copier dans Google)</label>
               <textarea id="profile-categories" rows="3" placeholder="Catégorie principale et secondaires..."></textarea>
               <button type="button" class="btn-sm btn-ghost" style="margin-top:6px;" onclick="copyTextField('profile-categories', this)">📋 Copier les catégories</button>
             </div>
-            <div class="field">
-              <label>Liste des services SEO/GEO par NyXia (prêt à copier)</label>
-              <textarea id="profile-services" rows="3" placeholder="Services détaillés..."></textarea>
-              <button type="button" class="btn-sm btn-ghost" style="margin-top:6px;" onclick="copyTextField('profile-services', this)">📋 Copier les services</button>
-            </div>
           </div>
 
-          <div style="margin-top:16px;">
-            <button type="submit" class="btn-primary">Pousser Description &amp; Horaires sur Google</button>
+          <div style="margin-top:18px;">
+            <button type="submit" class="btn-primary">Valider, Publier sur Google &amp; Synchroniser D1</button>
           </div>
         </form>
       </section>
@@ -1790,8 +1850,10 @@ function renderDashboardHTML(clients, recentReviews, recentLeads, recentAppointm
         <input type="hidden" name="client_id" id="edit-client_id">
         <div class="field-grid">
           <div class="field"><label>Entreprise *</label><input name="business_name" id="edit-business_name" required></div>
-          <div class="field"><label>Ville / Région *</label><input name="city" id="edit-city" required></div>
-          <div class="field"><label>Métier / Spécialité *</label><input name="category" id="edit-category" required></div>
+          <div class="field"><label>Ville principale *</label><input name="city" id="edit-city" required></div>
+          <div class="field"><label>Catégorie principale *</label><input name="category" id="edit-category" required></div>
+          <div class="field"><label>Services précis (recherche)</label><input name="services" id="edit-services"></div>
+          <div class="field"><label>Territoire desservi</label><input name="service_areas" id="edit-service_areas"></div>
           <div class="field"><label>Téléphone</label><input name="phone" id="edit-phone"></div>
           <div class="field"><label>Courriel vendeur (invitations RDV)</label><input type="email" name="client_email" id="edit-client_email"></div>
           <div class="field"><label>Lien Agenda Google Workspace</label><input type="url" name="booking_calendar_url" id="edit-booking_calendar_url"></div>
