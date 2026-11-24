@@ -40,6 +40,13 @@ function isOvernight(openTime, closeTime) {
   return timeToMinutes(closeTime) <= timeToMinutes(openTime);
 }
 
+function formatStorefrontAddress(addr) {
+  if (!addr || typeof addr !== 'object') return '';
+  const lines = Array.isArray(addr.addressLines) ? addr.addressLines.filter(Boolean) : [];
+  const cityProv = [addr.locality, addr.administrativeArea, addr.postalCode].filter(Boolean).join(', ');
+  return [...lines, cityProv].filter(Boolean).join(', ');
+}
+
 function extractV1Location(locationName) {
   const clean = String(locationName || '').trim();
   if (!clean) return null;
@@ -259,7 +266,7 @@ export async function handleReadGoogleProfileApi(request, env, getGoogleAccessTo
 
     const accessToken = await getGoogleAccessToken(client.google_refresh_token, env);
     const readRes = await fetch(
-      `https://mybusinessbusinessinformation.googleapis.com/v1/${v1Location}?readMask=title,profile,regularHours,specialHours`,
+      `https://mybusinessbusinessinformation.googleapis.com/v1/${v1Location}?readMask=title,profile,regularHours,specialHours,storefrontAddress`,
       {
         method: 'GET',
         headers: { Authorization: `Bearer ${accessToken}` }
@@ -276,6 +283,7 @@ export async function handleReadGoogleProfileApi(request, env, getGoogleAccessTo
     const description = locData?.profile?.description || '';
     const hoursGrid = mapRegularHoursToGrid(locData?.regularHours);
     const specialHours = mapSpecialHoursToList(locData?.specialHours);
+    const googleAddress = formatStorefrontAddress(locData?.storefrontAddress);
     const syncedHoursPayload = JSON.stringify({
       regularHours: locData?.regularHours || null,
       specialHours: locData?.specialHours || null,
@@ -284,9 +292,11 @@ export async function handleReadGoogleProfileApi(request, env, getGoogleAccessTo
 
     await env.DB.prepare(`
       UPDATE clients
-      SET gbp_description = ?, gbp_hours_json = ?
+      SET gbp_description = ?,
+          gbp_hours_json = ?,
+          public_address = COALESCE(NULLIF(public_address, ''), ?)
       WHERE id = ?
-    `).bind(description, syncedHoursPayload, client.id).run();
+    `).bind(description, syncedHoursPayload, googleAddress || null, client.id).run();
 
     return jsonResponse({
       ok: true,
@@ -294,6 +304,7 @@ export async function handleReadGoogleProfileApi(request, env, getGoogleAccessTo
       location_title: locData?.title || client.google_location_title || client.business_name,
       location_name: v1Location,
       description,
+      public_address: client.public_address || googleAddress || '',
       hours_grid: hoursGrid,
       special_hours: specialHours,
       services: client.services || '',
