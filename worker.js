@@ -1,4 +1,5 @@
 import publicSiteWorker from './pontdigital/worker.js';
+import { handleNyxiaDraftProfileApi, handleUpdateGoogleProfileRoute } from './gbp-profile.js';
 
 // ============================================================================
 // PONT DIGITAL — SUPER ADMIN WORKER MODULAIRE (CLOUDFLARE WORKERS + D1)
@@ -118,10 +119,16 @@ export default {
       if (path === '/api/google/reply-review' && request.method === 'POST') {
         return handleReplyReviewWithNyxiaRoute(request, env);
       }
+      if (path === '/api/google/update-profile' && request.method === 'POST') {
+        return handleUpdateGoogleProfileRoute(request, env, getGoogleAccessToken, listAllGoogleLocations);
+      }
 
       // 8. Générateur IA NyXia universel par métier
       if (path === '/api/nyxia/draft-post' && request.method === 'POST') {
         return handleNyxiaDraftPostApi(request, env);
+      }
+      if (path === '/api/nyxia/draft-profile' && request.method === 'POST') {
+        return handleNyxiaDraftProfileApi(request, env, jsonResponse);
       }
 
       // 9. Module Appointment Setter (RDV qualifiés + Invitations Google Agenda)
@@ -323,7 +330,7 @@ function buildGoogleCalendarInviteUrl({ title, startIso, durationMinutes, detail
     location
   });
   if (guests && guests.length > 0) params.set('add', guests.join(','));
-  return `https://calendar.google.com/calendar/render?${params.toString()}`;
+  return `[https://calendar.google.com/calendar/render?$](https://calendar.google.com/calendar/render?$){params.toString()}`;
 }
 
 async function handleBookAppointmentRoute(request, env) {
@@ -402,12 +409,12 @@ async function handleNyxiaDraftPostApi(request, env) {
     }
 
     const model = env.OPENROUTER_MODEL || 'google/gemini-2.5-flash';
-    const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+    const res = await fetch('[https://openrouter.ai/api/v1/chat/completions](https://openrouter.ai/api/v1/chat/completions)', {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${env.OPENROUTER_API_KEY}`,
         'Content-Type': 'application/json',
-        'HTTP-Referer': 'https://SuperAdmin-Pontdigital.nyxia.top',
+        'HTTP-Referer': '[https://SuperAdmin-Pontdigital.nyxia.top](https://SuperAdmin-Pontdigital.nyxia.top)',
         'X-Title': 'Pont Digital - NyXia Editorial Engine'
       },
       body: JSON.stringify({
@@ -495,7 +502,7 @@ async function handleReplyReviewWithNyxiaRoute(request, env) {
 
     const cleanReviewId = row.review_id.includes('/reviews/') ? row.review_id.split('/reviews/').pop() : row.review_id;
     const googleReplyRes = await fetch(
-      `https://mybusiness.googleapis.com/v4/${fullResource}/reviews/${encodeURIComponent(cleanReviewId)}/reply`,
+      `[https://mybusiness.googleapis.com/v4/$](https://mybusiness.googleapis.com/v4/$){fullResource}/reviews/${encodeURIComponent(cleanReviewId)}/reply`,
       {
         method: 'PUT',
         headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
@@ -523,12 +530,12 @@ async function generateNyxiaReviewReply({ env, businessName, city, category, rev
   const model = env.OPENROUTER_MODEL || 'google/gemini-2.5-flash';
 
   try {
-    const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+    const res = await fetch('[https://openrouter.ai/api/v1/chat/completions](https://openrouter.ai/api/v1/chat/completions)', {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${env.OPENROUTER_API_KEY}`,
         'Content-Type': 'application/json',
-        'HTTP-Referer': 'https://SuperAdmin-Pontdigital.nyxia.top',
+        'HTTP-Referer': '[https://SuperAdmin-Pontdigital.nyxia.top](https://SuperAdmin-Pontdigital.nyxia.top)',
         'X-Title': 'Pont Digital - NyXia Review Responder'
       },
       body: JSON.stringify({
@@ -652,12 +659,12 @@ async function generateNyxiaSmsAlert({ env, businessName, prospectName, prospect
   const model = env.OPENROUTER_MODEL || 'google/gemini-2.5-flash';
 
   try {
-    const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+    const res = await fetch('[https://openrouter.ai/api/v1/chat/completions](https://openrouter.ai/api/v1/chat/completions)', {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${env.OPENROUTER_API_KEY}`,
         'Content-Type': 'application/json',
-        'HTTP-Referer': 'https://SuperAdmin-Pontdigital.nyxia.top',
+        'HTTP-Referer': '[https://SuperAdmin-Pontdigital.nyxia.top](https://SuperAdmin-Pontdigital.nyxia.top)',
         'X-Title': 'Pont Digital - NyXia Agency Alert'
       },
       body: JSON.stringify({
@@ -689,7 +696,7 @@ async function sendTwilioSms(env, rawToPhone, bodyText) {
   const toPhone = digits.length === 10 ? `+1${digits}` : (rawToPhone.startsWith('+') ? rawToPhone : `+${digits}`);
   try {
     const res = await fetch(
-      `https://api.twilio.com/2010-04-01/Accounts/${env.TWILIO_ACCOUNT_SID}/Messages.json`,
+      `[https://api.twilio.com/2010-04-01/Accounts/$](https://api.twilio.com/2010-04-01/Accounts/$){env.TWILIO_ACCOUNT_SID}/Messages.json`,
       {
         method: 'POST',
         headers: {
@@ -724,9 +731,9 @@ async function handleGoogleOAuthStart(request, env) {
   const redirectUri = `${url.origin}/oauth/google/callback`;
 
   const googleAuthUrl =
-    `https://accounts.google.com/o/oauth2/v2/auth?client_id=${encodeURIComponent(env.GOOGLE_CLIENT_ID)}` +
+    `[https://accounts.google.com/o/oauth2/v2/auth?client_id=$](https://accounts.google.com/o/oauth2/v2/auth?client_id=$){encodeURIComponent(env.GOOGLE_CLIENT_ID)}` +
     `&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code` +
-    `&scope=${encodeURIComponent('https://www.googleapis.com/auth/business.manage')}` +
+    `&scope=${encodeURIComponent('[https://www.googleapis.com/auth/business.manage](https://www.googleapis.com/auth/business.manage)')}` +
     `&access_type=offline&prompt=consent&state=${state}`;
 
   return Response.redirect(googleAuthUrl, 302);
@@ -756,7 +763,7 @@ async function handleGoogleOAuthCallback(request, env) {
     return Response.redirect(new URL('/?msg=google_oauth_error', request.url), 302);
   }
 
-  const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
+  const tokenRes = await fetch('[https://oauth2.googleapis.com/token](https://oauth2.googleapis.com/token)', {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams({
@@ -827,7 +834,7 @@ async function handleAssignGoogleLocationPost(request, env) {
 }
 
 async function getGoogleAccessToken(refreshToken, env) {
-  const res = await fetch('https://oauth2.googleapis.com/token', {
+  const res = await fetch('[https://oauth2.googleapis.com/token](https://oauth2.googleapis.com/token)', {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams({
@@ -845,7 +852,7 @@ async function getGoogleAccessToken(refreshToken, env) {
 async function listAllGoogleLocations(accessToken) {
   const results = [];
   try {
-    const accountsRes = await fetch('https://mybusinessaccountmanagement.googleapis.com/v1/accounts', {
+    const accountsRes = await fetch('[https://mybusinessaccountmanagement.googleapis.com/v1/accounts](https://mybusinessaccountmanagement.googleapis.com/v1/accounts)', {
       headers: { Authorization: `Bearer ${accessToken}` }
     });
     const accounts = (await accountsRes.json()).accounts || [];
@@ -855,7 +862,7 @@ async function listAllGoogleLocations(accessToken) {
       do {
         const pageParam = pageToken ? `&pageToken=${encodeURIComponent(pageToken)}` : '';
         const locRes = await fetch(
-          `https://mybusinessbusinessinformation.googleapis.com/v1/${acc.name}/locations?readMask=name,title,storefrontAddress,metadata&pageSize=100${pageParam}`,
+          `[https://mybusinessbusinessinformation.googleapis.com/v1/$](https://mybusinessbusinessinformation.googleapis.com/v1/$){acc.name}/locations?readMask=name,title,storefrontAddress,metadata&pageSize=100${pageParam}`,
           { headers: { Authorization: `Bearer ${accessToken}` } }
         );
         const locData = await locRes.json();
@@ -914,7 +921,7 @@ async function syncReviewsForClient(client, env) {
   const fullResource = normalizeFullLocationResource(accountName, locationName);
   if (!fullResource) throw new Error('Aucun établissement Google trouvé.');
 
-  const reviewsRes = await fetch(`https://mybusiness.googleapis.com/v4/${fullResource}/reviews?pageSize=50`, {
+  const reviewsRes = await fetch(`[https://mybusiness.googleapis.com/v4/$](https://mybusiness.googleapis.com/v4/$){fullResource}/reviews?pageSize=50`, {
     headers: { Authorization: `Bearer ${accessToken}` }
   });
   const reviewsData = await reviewsRes.json();
@@ -1001,7 +1008,7 @@ async function handleCreateGooglePostRoute(request, env) {
     if (ctaUrl && topicType !== 'OFFER') postBody.callToAction = { actionType, url: ctaUrl };
     if (mediaUrl) postBody.media = [{ mediaFormat: 'PHOTO', sourceUrl: mediaUrl }];
 
-    const postRes = await fetch(`https://mybusiness.googleapis.com/v4/${fullResource}/localPosts`, {
+    const postRes = await fetch(`[https://mybusiness.googleapis.com/v4/$](https://mybusiness.googleapis.com/v4/$){fullResource}/localPosts`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
       body: JSON.stringify(postBody)
@@ -1204,9 +1211,9 @@ function renderSharedHead(title) {
   <title>${escapeHtml(title)}</title>
   <link rel="icon" type="image/png" href="${FAVICON_URL}">
   <link rel="apple-touch-icon" href="${FAVICON_URL}">
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@600;700&family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="preconnect" href="[https://fonts.googleapis.com](https://fonts.googleapis.com)">
+  <link rel="preconnect" href="[https://fonts.gstatic.com](https://fonts.gstatic.com)" crossorigin>
+  <link href="[https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@600;700&family=Outfit:wght@300;400;500;600;700&display=swap](https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@600;700&family=Outfit:wght@300;400;500;600;700&display=swap)" rel="stylesheet">
   <link rel="stylesheet" href="${INDEX_CSS_URL}">
   <link rel="stylesheet" href="${ADMIN_CSS_URL}">`;
 }
@@ -1313,6 +1320,7 @@ function renderDashboardHTML(clients, recentReviews, recentLeads, recentAppointm
     reviews_synced: 'Avis Google synchronisés et enregistrés dans D1 !',
     review_replied: 'Réponse rédigée par NyXia et publiée sur Google Maps !',
     post_published: 'Publication diffusée sur la fiche Google Business Profile du client !',
+    profile_updated: 'Fiche Google Business Profile (description / horaires) mise à jour en direct !',
     google_api_error: 'Erreur de communication avec l’API Google Business Profile.',
     lead_processed: 'Alerte SMS envoyée par NyXia vers ton cellulaire et lead enregistré.',
     lead_status_updated: 'Statut de suivi du lead mis à jour.',
@@ -1509,14 +1517,14 @@ function renderDashboardHTML(clients, recentReviews, recentLeads, recentAppointm
             <div class="field"><label>Métier / Spécialité *</label><input name="category" required placeholder="Ex: Massothérapie, Toiture, Plomberie..."></div>
             <div class="field"><label>Téléphone public</label><input name="phone" placeholder="514-000-0000"></div>
             <div class="field"><label>Courriel vendeur (invitations RDV)</label><input type="email" name="client_email" placeholder="contact@entreprise.ca"></div>
-            <div class="field"><label>Lien Prise de RDV Google Workspace (Setter)</label><input type="url" name="booking_calendar_url" placeholder="https://calendar.app.google/..."></div>
-            <div class="field"><label>URL Page Heyzine (#page/X)</label><input type="url" name="heyzine_url" placeholder="https://heyzine.com/flip-book/...#page/1"></div>
+            <div class="field"><label>Lien Prise de RDV Google Workspace (Setter)</label><input type="url" name="booking_calendar_url" placeholder="[https://calendar.app.google/](https://calendar.app.google/)..."></div>
+            <div class="field"><label>URL Page Heyzine (#page/X)</label><input type="url" name="heyzine_url" placeholder="[https://heyzine.com/flip-book/...#page/1](https://heyzine.com/flip-book/...#page/1)"></div>
             <div class="field"><label>URL Vidéo entrevue (YouTube/Vimeo/MP4)</label><input type="url" name="interview_video_url" placeholder="https://..."></div>
             <div class="field"><label>URL Photo couverture principale</label><input type="url" name="cover_photo_url" placeholder="https://..."></div>
           </div>
           <div class="field-grid" style="margin-top:14px;">
             <div class="field"><label>Consignes pour les setters (script / critères qualification)</label><input name="booking_notes" placeholder="Ex: RDV découverte 20 min, secteur Rive-Nord uniquement"></div>
-            <div class="field"><label>Photos galerie (jusqu'à 5 URLs séparées par une virgule)</label><input name="gallery_urls" placeholder="https://img1.jpg, https://img2.jpg"></div>
+            <div class="field"><label>Photos galerie (jusqu'à 5 URLs séparées par une virgule)</label><input name="gallery_urls" placeholder="[https://img1.jpg](https://img1.jpg), [https://img2.jpg](https://img2.jpg)"></div>
           </div>
           <div style="margin-top:16px;"><button type="submit" class="btn-primary">Enregistrer l'entrepreneur</button></div>
         </form>
@@ -1652,6 +1660,64 @@ function renderDashboardHTML(clients, recentReviews, recentLeads, recentAppointm
           <div class="actions-stack" style="margin-top:12px;">
             <button type="button" id="btn-nyxia-draft" class="btn-sm btn-gold" style="padding:10px 16px;" onclick="draftPostWithNyxia()">✨ Rédiger avec NyXia</button>
             <button type="submit" class="btn-primary">Publier sur Google</button>
+          </div>
+        </form>
+      </section>
+
+      <section class="admin-card">
+        <h2 class="display" style="font-size:1.75rem;color:var(--gold);margin-bottom:14px;">Optimisation Fiche Google (Description, Horaires, Catégories &amp; Services)</h2>
+        <form method="POST" action="/api/google/update-profile">
+          <div class="field-grid">
+            <div class="field">
+              <label>Entreprise cible (${connectedClients.length} connectée(s)) *</label>
+              <select id="profile-client-select" name="client_id" required>
+                <option value="">-- Sélectionner le client GBP --</option>
+                ${connectedOptions}
+              </select>
+            </div>
+            <div class="field">
+              <label>Points forts / spécialités à mettre de l'avant (pour NyXia)</label>
+              <input id="profile-notes" placeholder="Ex: 15 ans d'expérience, soumission gratuite, urgence 24/7...">
+            </div>
+          </div>
+
+          <div class="actions-stack" style="margin-top:12px;">
+            <button type="button" id="btn-nyxia-profile" class="btn-sm btn-gold" style="padding:10px 16px;" onclick="draftProfileWithNyxia()">✨ Générer Description, Catégories &amp; Services avec NyXia</button>
+          </div>
+
+          <div class="field" style="margin-top:14px;">
+            <label>Description officielle Google (max 750 car. — poussée directement sur Google)</label>
+            <textarea id="profile-description" name="description" rows="4" maxlength="750" placeholder="Description SEO/GEO optimisée..."></textarea>
+          </div>
+
+          <label class="check-row">
+            <input type="checkbox" name="apply_hours" value="1">
+            Mettre aussi à jour les horaires d'ouverture réguliers sur Google
+          </label>
+          <div class="field-grid" style="margin-top:10px;">
+            <div class="field"><label>Lun–Ven (Ouverture)</label><input type="time" name="week_open" value="09:00"></div>
+            <div class="field"><label>Lun–Ven (Fermeture)</label><input type="time" name="week_close" value="17:00"></div>
+            <div class="field"><label>Samedi (Ouverture — vide si fermé)</label><input type="time" name="sat_open"></div>
+            <div class="field"><label>Samedi (Fermeture)</label><input type="time" name="sat_close"></div>
+            <div class="field"><label>Dimanche (Ouverture — vide si fermé)</label><input type="time" name="sun_open"></div>
+            <div class="field"><label>Dimanche (Fermeture)</label><input type="time" name="sun_close"></div>
+          </div>
+
+          <div class="field-grid" style="margin-top:14px;">
+            <div class="field">
+              <label>Catégories recommandées par NyXia (prêt à copier)</label>
+              <textarea id="profile-categories" rows="3" placeholder="Catégorie principale et secondaires..."></textarea>
+              <button type="button" class="btn-sm btn-ghost" style="margin-top:6px;" onclick="copyTextField('profile-categories', this)">📋 Copier les catégories</button>
+            </div>
+            <div class="field">
+              <label>Liste des services SEO/GEO par NyXia (prêt à copier)</label>
+              <textarea id="profile-services" rows="3" placeholder="Services détaillés..."></textarea>
+              <button type="button" class="btn-sm btn-ghost" style="margin-top:6px;" onclick="copyTextField('profile-services', this)">📋 Copier les services</button>
+            </div>
+          </div>
+
+          <div style="margin-top:16px;">
+            <button type="submit" class="btn-primary">Pousser Description &amp; Horaires sur Google</button>
           </div>
         </form>
       </section>
