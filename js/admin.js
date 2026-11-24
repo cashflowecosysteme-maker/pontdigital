@@ -4,6 +4,7 @@
 // ============================================================================
 
 var GBP_DAYS = ['MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY', 'SUNDAY'];
+var gbpLoadRequestSeq = 0;
 
 function switchTab(tabId) {
   document.querySelectorAll('.tab-btn').forEach(function (btn) {
@@ -130,6 +131,7 @@ function clearDayHours(dayCode) {
 }
 
 function resetProfileLoadedState() {
+  gbpLoadRequestSeq += 1;
   var flag = document.getElementById('profile-loaded-flag');
   if (flag) flag.value = '0';
   var status = document.getElementById('profile-load-status');
@@ -191,6 +193,18 @@ function serializeSpecialHours() {
   return result;
 }
 
+function hasAnyRegularHourFilled() {
+  for (var i = 0; i < GBP_DAYS.length; i++) {
+    var day = GBP_DAYS[i];
+    var o1 = (document.getElementById('day_' + day + '_open1') || {}).value || '';
+    var c1 = (document.getElementById('day_' + day + '_close1') || {}).value || '';
+    var o2 = (document.getElementById('day_' + day + '_open2') || {}).value || '';
+    var c2 = (document.getElementById('day_' + day + '_close2') || {}).value || '';
+    if ((o1 && c1) || (o2 && c2)) return true;
+  }
+  return false;
+}
+
 async function loadCurrentGoogleProfile() {
   var select = document.getElementById('profile-client-select');
   var clientId = select.value;
@@ -202,13 +216,20 @@ async function loadCurrentGoogleProfile() {
     return;
   }
 
-  var oldLabel = btn.textContent;
+  var reqSeq = ++gbpLoadRequestSeq;
+  var oldLabel = '🔄 Charger la fiche Google actuelle';
   btn.disabled = true;
   btn.textContent = '⏳ Lecture de la fiche sur Google...';
 
   try {
     var res = await fetch('/api/google/read-profile?client_id=' + encodeURIComponent(clientId));
     var data = await res.json();
+
+    // PROTECTION CHANGEMENT RAPIDE : ignorer toute réponse qui ne correspond plus au client sélectionné
+    if (reqSeq !== gbpLoadRequestSeq || select.value !== clientId) {
+      return;
+    }
+
     if (!res.ok || data.error) {
       status.style.color = '#fca5a5';
       status.textContent = '⚠️ ' + (data.error || 'Impossible de lire la fiche Google.');
@@ -238,11 +259,15 @@ async function loadCurrentGoogleProfile() {
     status.style.color = 'var(--green)';
     status.textContent = '✓ Fiche Google chargée et synchronisée dans D1 : « ' + (data.location_title || 'Établissement') + ' ».';
   } catch (_) {
-    status.style.color = '#fca5a5';
-    status.textContent = '⚠️ Erreur réseau lors de la lecture Google.';
+    if (reqSeq === gbpLoadRequestSeq && select.value === clientId) {
+      status.style.color = '#fca5a5';
+      status.textContent = '⚠️ Erreur réseau lors de la lecture Google.';
+    }
   } finally {
-    btn.disabled = false;
-    btn.textContent = oldLabel;
+    if (reqSeq === gbpLoadRequestSeq) {
+      btn.disabled = false;
+      btn.textContent = oldLabel;
+    }
   }
 }
 
@@ -299,7 +324,14 @@ function confirmProfileUpdate(event) {
 
   var sections = [];
   if (applyDesc) sections.push('• Description officielle Google');
-  if (applyHours) sections.push('• Horaires réguliers (jour par jour)');
+  if (applyHours) {
+    if (!hasAnyRegularHourFilled()) {
+      alert('⚠️ Sécurité horaires : tu as coché « Publier ces horaires réguliers », mais aucune plage horaire n’est remplie.\nRenseigne au moins un jour d’ouverture ou décoche la case pour éviter d’effacer tous les horaires du client.');
+      if (event) event.preventDefault();
+      return false;
+    }
+    sections.push('• Horaires réguliers (jour par jour)');
+  }
   if (applySpecial) sections.push('• Horaires spéciaux (jours fériés / congés)');
 
   if (sections.length === 0) {
