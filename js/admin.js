@@ -112,6 +112,7 @@ async function draftPostWithNyxia() {
     btn.textContent = oldLabel;
   }
 }
+
 async function draftProfileWithNyxia() {
   var clientId = document.getElementById('profile-client-select').value;
   var notes = document.getElementById('profile-notes').value;
@@ -150,6 +151,8 @@ function copyTextField(fieldId, btn) {
   navigator.clipboard.writeText(el.value).then(function () {
     var old = btn.textContent;
     btn.textContent = '✓ Copié !';
-    setTimeout(function () { btn.textContent = old; }, 2000);
+    setTimeout(function () {
+      btn.textContent = old;
+    }, 2000);
   });
 }
