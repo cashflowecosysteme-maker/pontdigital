@@ -112,3 +112,44 @@ async function draftPostWithNyxia() {
     btn.textContent = oldLabel;
   }
 }
+async function draftProfileWithNyxia() {
+  var clientId = document.getElementById('profile-client-select').value;
+  var notes = document.getElementById('profile-notes').value;
+  var btn = document.getElementById('btn-nyxia-profile');
+
+  if (!clientId) {
+    alert('Choisis d’abord un entrepreneur connecté dans la liste.');
+    return;
+  }
+
+  var oldLabel = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = '⏳ NyXia optimise la fiche Google...';
+
+  try {
+    var res = await fetch('/api/nyxia/draft-profile', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ client_id: clientId, notes: notes })
+    });
+    var data = await res.json();
+    if (data.description) document.getElementById('profile-description').value = data.description;
+    if (data.categories) document.getElementById('profile-categories').value = data.categories;
+    if (data.services) document.getElementById('profile-services').value = data.services;
+  } catch (_) {
+    alert('Erreur lors de la génération par NyXia.');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = oldLabel;
+  }
+}
+
+function copyTextField(fieldId, btn) {
+  var el = document.getElementById(fieldId);
+  if (!el || !el.value) return;
+  navigator.clipboard.writeText(el.value).then(function () {
+    var old = btn.textContent;
+    btn.textContent = '✓ Copié !';
+    setTimeout(function () { btn.textContent = old; }, 2000);
+  });
+}
