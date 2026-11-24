@@ -1,3 +1,5 @@
+import publicSiteWorker from './pontdigital/worker.js';
+
 // ============================================================================
 // PONT DIGITAL — SUPER ADMIN WORKER MODULAIRE (CLOUDFLARE WORKERS + D1)
 // Assets externes : /images/FavIcon.png, /images/NyXia.png,
@@ -15,6 +17,35 @@ export default {
   async fetch(request, env) {
     try {
       const url = new URL(request.url);
+      // Routage des deux domaines EXISTANTS vers les deux modules EXISTANTS.
+      // Le domaine public n'a jamais acces aux routes du SuperAdmin.
+      if (url.hostname.toLowerCase() === 'pontdigital.nyxia.top') {
+        const publicPath = url.pathname;
+
+        // API du module public : conserver les URLs utilisees par le site.
+        if (publicPath === '/api/public/clients' ||
+            publicPath === '/api/nyxia/chat' ||
+            publicPath === '/favicon.ico') {
+          return publicSiteWorker.fetch(request, env);
+        }
+
+        // Site public uniquement : aucun acces aux autres fichiers et routes.
+        // Les CSS/JS/images sont lus dans /pontdigital/ et non a la racine admin.
+        const isPublicAsset = publicPath === '/' ||
+          publicPath === '/index.html' ||
+          publicPath.startsWith('/css/') ||
+          publicPath.startsWith('/js/') ||
+          publicPath.startsWith('/images/');
+        if (!isPublicAsset) {
+          return new Response('Page introuvable', { status: 404 });
+        }
+        if (request.method !== 'GET' && request.method !== 'HEAD') {
+          return new Response('Methode non autorisee', { status: 405 });
+        }
+        const publicUrl = new URL(request.url);
+        publicUrl.pathname = '/pontdigital' + ((publicPath === '/' || publicPath === '/index.html') ? '/' : publicPath);
+        return publicSiteWorker.fetch(new Request(publicUrl.toString(), request), env);
+      }
       const path = url.pathname;
 
       // 0. Servir les assets statiques (/images/*, /css/*, /js/*) et le favicon

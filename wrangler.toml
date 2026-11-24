@@ -3,7 +3,8 @@ main = "worker.js"
 compatibility_date = "2026-11-01"
 
 routes = [
-  { pattern = "SuperAdmin-Pontdigital.nyxia.top", custom_domain = true }
+  { pattern = "SuperAdmin-Pontdigital.nyxia.top", custom_domain = true },
+  { pattern = "pontdigital.nyxia.top", custom_domain = true }
 ]
 
 [assets]
