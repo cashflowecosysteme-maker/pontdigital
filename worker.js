@@ -120,7 +120,7 @@ export default {
         return handleReplyReviewWithNyxiaRoute(request, env);
       }
       if (path === '/api/google/update-profile' && request.method === 'POST') {
-        return handleUpdateGoogleProfileRoute(request, env, getGoogleAccessToken, listAllGoogleLocations);
+        return handleUpdateGoogleProfileRoute(request, env, getGoogleAccessToken);
       }
 
       // 8. Générateur IA NyXia universel par métier
@@ -330,7 +330,7 @@ function buildGoogleCalendarInviteUrl({ title, startIso, durationMinutes, detail
     location
   });
   if (guests && guests.length > 0) params.set('add', guests.join(','));
-  return `[https://calendar.google.com/calendar/render?$](https://calendar.google.com/calendar/render?$){params.toString()}`;
+  return `https://calendar.google.com/calendar/render?${params.toString()}`;
 }
 
 async function handleBookAppointmentRoute(request, env) {
@@ -409,12 +409,12 @@ async function handleNyxiaDraftPostApi(request, env) {
     }
 
     const model = env.OPENROUTER_MODEL || 'google/gemini-2.5-flash';
-    const res = await fetch('[https://openrouter.ai/api/v1/chat/completions](https://openrouter.ai/api/v1/chat/completions)', {
+    const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${env.OPENROUTER_API_KEY}`,
         'Content-Type': 'application/json',
-        'HTTP-Referer': '[https://SuperAdmin-Pontdigital.nyxia.top](https://SuperAdmin-Pontdigital.nyxia.top)',
+        'HTTP-Referer': 'https://SuperAdmin-Pontdigital.nyxia.top',
         'X-Title': 'Pont Digital - NyXia Editorial Engine'
       },
       body: JSON.stringify({
@@ -502,7 +502,7 @@ async function handleReplyReviewWithNyxiaRoute(request, env) {
 
     const cleanReviewId = row.review_id.includes('/reviews/') ? row.review_id.split('/reviews/').pop() : row.review_id;
     const googleReplyRes = await fetch(
-      `[https://mybusiness.googleapis.com/v4/$](https://mybusiness.googleapis.com/v4/$){fullResource}/reviews/${encodeURIComponent(cleanReviewId)}/reply`,
+      `https://mybusiness.googleapis.com/v4/${fullResource}/reviews/${encodeURIComponent(cleanReviewId)}/reply`,
       {
         method: 'PUT',
         headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
@@ -530,12 +530,12 @@ async function generateNyxiaReviewReply({ env, businessName, city, category, rev
   const model = env.OPENROUTER_MODEL || 'google/gemini-2.5-flash';
 
   try {
-    const res = await fetch('[https://openrouter.ai/api/v1/chat/completions](https://openrouter.ai/api/v1/chat/completions)', {
+    const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${env.OPENROUTER_API_KEY}`,
         'Content-Type': 'application/json',
-        'HTTP-Referer': '[https://SuperAdmin-Pontdigital.nyxia.top](https://SuperAdmin-Pontdigital.nyxia.top)',
+        'HTTP-Referer': 'https://SuperAdmin-Pontdigital.nyxia.top',
         'X-Title': 'Pont Digital - NyXia Review Responder'
       },
       body: JSON.stringify({
@@ -659,12 +659,12 @@ async function generateNyxiaSmsAlert({ env, businessName, prospectName, prospect
   const model = env.OPENROUTER_MODEL || 'google/gemini-2.5-flash';
 
   try {
-    const res = await fetch('[https://openrouter.ai/api/v1/chat/completions](https://openrouter.ai/api/v1/chat/completions)', {
+    const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${env.OPENROUTER_API_KEY}`,
         'Content-Type': 'application/json',
-        'HTTP-Referer': '[https://SuperAdmin-Pontdigital.nyxia.top](https://SuperAdmin-Pontdigital.nyxia.top)',
+        'HTTP-Referer': 'https://SuperAdmin-Pontdigital.nyxia.top',
         'X-Title': 'Pont Digital - NyXia Agency Alert'
       },
       body: JSON.stringify({
@@ -696,7 +696,7 @@ async function sendTwilioSms(env, rawToPhone, bodyText) {
   const toPhone = digits.length === 10 ? `+1${digits}` : (rawToPhone.startsWith('+') ? rawToPhone : `+${digits}`);
   try {
     const res = await fetch(
-      `[https://api.twilio.com/2010-04-01/Accounts/$](https://api.twilio.com/2010-04-01/Accounts/$){env.TWILIO_ACCOUNT_SID}/Messages.json`,
+      `https://api.twilio.com/2010-04-01/Accounts/${env.TWILIO_ACCOUNT_SID}/Messages.json`,
       {
         method: 'POST',
         headers: {
@@ -731,9 +731,9 @@ async function handleGoogleOAuthStart(request, env) {
   const redirectUri = `${url.origin}/oauth/google/callback`;
 
   const googleAuthUrl =
-    `[https://accounts.google.com/o/oauth2/v2/auth?client_id=$](https://accounts.google.com/o/oauth2/v2/auth?client_id=$){encodeURIComponent(env.GOOGLE_CLIENT_ID)}` +
+    `https://accounts.google.com/o/oauth2/v2/auth?client_id=${encodeURIComponent(env.GOOGLE_CLIENT_ID)}` +
     `&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code` +
-    `&scope=${encodeURIComponent('[https://www.googleapis.com/auth/business.manage](https://www.googleapis.com/auth/business.manage)')}` +
+    `&scope=${encodeURIComponent('https://www.googleapis.com/auth/business.manage')}` +
     `&access_type=offline&prompt=consent&state=${state}`;
 
   return Response.redirect(googleAuthUrl, 302);
@@ -763,7 +763,7 @@ async function handleGoogleOAuthCallback(request, env) {
     return Response.redirect(new URL('/?msg=google_oauth_error', request.url), 302);
   }
 
-  const tokenRes = await fetch('[https://oauth2.googleapis.com/token](https://oauth2.googleapis.com/token)', {
+  const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams({
@@ -834,7 +834,7 @@ async function handleAssignGoogleLocationPost(request, env) {
 }
 
 async function getGoogleAccessToken(refreshToken, env) {
-  const res = await fetch('[https://oauth2.googleapis.com/token](https://oauth2.googleapis.com/token)', {
+  const res = await fetch('https://oauth2.googleapis.com/token', {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams({
@@ -852,7 +852,7 @@ async function getGoogleAccessToken(refreshToken, env) {
 async function listAllGoogleLocations(accessToken) {
   const results = [];
   try {
-    const accountsRes = await fetch('[https://mybusinessaccountmanagement.googleapis.com/v1/accounts](https://mybusinessaccountmanagement.googleapis.com/v1/accounts)', {
+    const accountsRes = await fetch('https://mybusinessaccountmanagement.googleapis.com/v1/accounts', {
       headers: { Authorization: `Bearer ${accessToken}` }
     });
     const accounts = (await accountsRes.json()).accounts || [];
@@ -862,7 +862,7 @@ async function listAllGoogleLocations(accessToken) {
       do {
         const pageParam = pageToken ? `&pageToken=${encodeURIComponent(pageToken)}` : '';
         const locRes = await fetch(
-          `[https://mybusinessbusinessinformation.googleapis.com/v1/$](https://mybusinessbusinessinformation.googleapis.com/v1/$){acc.name}/locations?readMask=name,title,storefrontAddress,metadata&pageSize=100${pageParam}`,
+          `https://mybusinessbusinessinformation.googleapis.com/v1/${acc.name}/locations?readMask=name,title,storefrontAddress,metadata&pageSize=100${pageParam}`,
           { headers: { Authorization: `Bearer ${accessToken}` } }
         );
         const locData = await locRes.json();
@@ -921,7 +921,7 @@ async function syncReviewsForClient(client, env) {
   const fullResource = normalizeFullLocationResource(accountName, locationName);
   if (!fullResource) throw new Error('Aucun établissement Google trouvé.');
 
-  const reviewsRes = await fetch(`[https://mybusiness.googleapis.com/v4/$](https://mybusiness.googleapis.com/v4/$){fullResource}/reviews?pageSize=50`, {
+  const reviewsRes = await fetch(`https://mybusiness.googleapis.com/v4/${fullResource}/reviews?pageSize=50`, {
     headers: { Authorization: `Bearer ${accessToken}` }
   });
   const reviewsData = await reviewsRes.json();
@@ -1008,7 +1008,7 @@ async function handleCreateGooglePostRoute(request, env) {
     if (ctaUrl && topicType !== 'OFFER') postBody.callToAction = { actionType, url: ctaUrl };
     if (mediaUrl) postBody.media = [{ mediaFormat: 'PHOTO', sourceUrl: mediaUrl }];
 
-    const postRes = await fetch(`[https://mybusiness.googleapis.com/v4/$](https://mybusiness.googleapis.com/v4/$){fullResource}/localPosts`, {
+    const postRes = await fetch(`https://mybusiness.googleapis.com/v4/${fullResource}/localPosts`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
       body: JSON.stringify(postBody)
@@ -1211,9 +1211,9 @@ function renderSharedHead(title) {
   <title>${escapeHtml(title)}</title>
   <link rel="icon" type="image/png" href="${FAVICON_URL}">
   <link rel="apple-touch-icon" href="${FAVICON_URL}">
-  <link rel="preconnect" href="[https://fonts.googleapis.com](https://fonts.googleapis.com)">
-  <link rel="preconnect" href="[https://fonts.gstatic.com](https://fonts.gstatic.com)" crossorigin>
-  <link href="[https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@600;700&family=Outfit:wght@300;400;500;600;700&display=swap](https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@600;700&family=Outfit:wght@300;400;500;600;700&display=swap)" rel="stylesheet">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@600;700&family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="${INDEX_CSS_URL}">
   <link rel="stylesheet" href="${ADMIN_CSS_URL}">`;
 }
@@ -1314,6 +1314,7 @@ function renderDashboardHTML(clients, recentReviews, recentLeads, recentAppointm
     error_fields: 'Veuillez remplir les champs obligatoires.',
     google_connected: 'Fiche Google Business Profile connectée avec succès !',
     google_location_assigned: 'Établissement Google Agence associé avec succès !',
+    google_location_required: 'Sécurité multi-fiches : associe d’abord la fiche Google précise de cet entrepreneur (« Changer fiche ») avant toute modification.',
     google_oauth_error: 'La connexion Google Business Profile a échoué ou a été annulée.',
     google_missing_keys: 'Configuration requise : ajoute GOOGLE_CLIENT_ID et GOOGLE_CLIENT_SECRET dans Cloudflare.',
     google_not_connected: 'Connecte d’abord la fiche Google GBP de ce client.',
@@ -1348,6 +1349,22 @@ function renderDashboardHTML(clients, recentReviews, recentLeads, recentAppointm
     let photosCount = 0;
     try { photosCount = JSON.parse(c.gallery_urls || '[]').length; } catch (_) {}
 
+    // SÉCURITÉ : seuls les champs d'édition sont transmis au navigateur (aucun jeton Google exposé dans le HTML)
+    const safeClientForEdit = {
+      id: c.id,
+      business_name: c.business_name || '',
+      city: c.city || '',
+      category: c.category || '',
+      phone: c.phone || '',
+      client_email: c.client_email || '',
+      booking_calendar_url: c.booking_calendar_url || '',
+      heyzine_url: c.heyzine_url || '',
+      interview_video_url: c.interview_video_url || '',
+      cover_photo_url: c.cover_photo_url || '',
+      booking_notes: c.booking_notes || '',
+      gallery_urls: c.gallery_urls || '[]'
+    };
+
     return `
       <tr>
         <td>
@@ -1381,7 +1398,7 @@ function renderDashboardHTML(clients, recentReviews, recentLeads, recentAppointm
         </td>
         <td>
           <div class="actions-stack">
-            <button type="button" class="btn-sm btn-ghost" onclick='openEditModal(${JSON.stringify(c).replace(/'/g, "&#39;")})'>✏️ Modifier</button>
+            <button type="button" class="btn-sm btn-ghost" onclick='openEditModal(${JSON.stringify(safeClientForEdit).replace(/'/g, "&#39;")})'>✏️ Modifier</button>
             ${isConnected ? `
               <form method="POST" action="/api/google/sync-reviews" style="margin:0;">
                 <input type="hidden" name="client_id" value="${c.id}">
@@ -1517,14 +1534,14 @@ function renderDashboardHTML(clients, recentReviews, recentLeads, recentAppointm
             <div class="field"><label>Métier / Spécialité *</label><input name="category" required placeholder="Ex: Massothérapie, Toiture, Plomberie..."></div>
             <div class="field"><label>Téléphone public</label><input name="phone" placeholder="514-000-0000"></div>
             <div class="field"><label>Courriel vendeur (invitations RDV)</label><input type="email" name="client_email" placeholder="contact@entreprise.ca"></div>
-            <div class="field"><label>Lien Prise de RDV Google Workspace (Setter)</label><input type="url" name="booking_calendar_url" placeholder="[https://calendar.app.google/](https://calendar.app.google/)..."></div>
-            <div class="field"><label>URL Page Heyzine (#page/X)</label><input type="url" name="heyzine_url" placeholder="[https://heyzine.com/flip-book/...#page/1](https://heyzine.com/flip-book/...#page/1)"></div>
+            <div class="field"><label>Lien Prise de RDV Google Workspace (Setter)</label><input type="url" name="booking_calendar_url" placeholder="https://calendar.app.google/..."></div>
+            <div class="field"><label>URL Page Heyzine (#page/X)</label><input type="url" name="heyzine_url" placeholder="https://heyzine.com/flip-book/...#page/1"></div>
             <div class="field"><label>URL Vidéo entrevue (YouTube/Vimeo/MP4)</label><input type="url" name="interview_video_url" placeholder="https://..."></div>
             <div class="field"><label>URL Photo couverture principale</label><input type="url" name="cover_photo_url" placeholder="https://..."></div>
           </div>
           <div class="field-grid" style="margin-top:14px;">
             <div class="field"><label>Consignes pour les setters (script / critères qualification)</label><input name="booking_notes" placeholder="Ex: RDV découverte 20 min, secteur Rive-Nord uniquement"></div>
-            <div class="field"><label>Photos galerie (jusqu'à 5 URLs séparées par une virgule)</label><input name="gallery_urls" placeholder="[https://img1.jpg](https://img1.jpg), [https://img2.jpg](https://img2.jpg)"></div>
+            <div class="field"><label>Photos galerie (jusqu'à 5 URLs séparées par une virgule)</label><input name="gallery_urls" placeholder="https://img1.jpg, https://img2.jpg"></div>
           </div>
           <div style="margin-top:16px;"><button type="submit" class="btn-primary">Enregistrer l'entrepreneur</button></div>
         </form>
