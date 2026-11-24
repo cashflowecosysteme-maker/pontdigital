@@ -35,6 +35,17 @@ function openEditModal(c) {
   document.getElementById('edit-category').value = c.category || '';
   document.getElementById('edit-services').value = c.services || '';
   document.getElementById('edit-service_areas').value = c.service_areas || '';
+  document.getElementById('edit-public_address').value = c.public_address || '';
+  document.getElementById('edit-advertorial_text').value = c.advertorial_text || '';
+  var socials = {};
+  try {
+    socials = JSON.parse(c.social_links || '{}') || {};
+  } catch (_) {}
+  document.getElementById('edit-social_website').value = socials.website || '';
+  document.getElementById('edit-social_facebook').value = socials.facebook || '';
+  document.getElementById('edit-social_instagram').value = socials.instagram || '';
+  document.getElementById('edit-social_linkedin').value = socials.linkedin || '';
+  document.getElementById('edit-social_tiktok').value = socials.tiktok || '';
   document.getElementById('edit-phone').value = c.phone || '';
   document.getElementById('edit-client_email').value = c.client_email || '';
   document.getElementById('edit-booking_calendar_url').value = c.booking_calendar_url || '';
