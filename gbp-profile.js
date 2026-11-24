@@ -1,5 +1,6 @@
 // ============================================================================
 // PONT DIGITAL — MODULE OPTIMISATION FICHE GBP (DESCRIPTION, HORAIRES, SERVICES)
+// Sécurité multi-fiches : aucune mise à jour Google sans établissement associé
 // ============================================================================
 
 export async function handleNyxiaDraftProfileApi(request, env, jsonResponse) {
@@ -74,7 +75,7 @@ export async function handleNyxiaDraftProfileApi(request, env, jsonResponse) {
   }
 }
 
-export async function handleUpdateGoogleProfileRoute(request, env, getGoogleAccessToken, listAllGoogleLocations) {
+export async function handleUpdateGoogleProfileRoute(request, env, getGoogleAccessToken) {
   const formData = await request.formData();
   const clientId = formData.get('client_id');
   const description = (formData.get('description') || '').trim().slice(0, 750);
@@ -89,16 +90,16 @@ export async function handleUpdateGoogleProfileRoute(request, env, getGoogleAcce
     return Response.redirect(new URL('/?msg=google_not_connected', request.url), 302);
   }
 
+  // SÉCURITÉ MULTI-FICHES : aucune modification sans établissement explicitement associé au client
+  const locationName = (client.google_location_name || '').trim();
+  if (!locationName) {
+    return Response.redirect(new URL('/?msg=google_location_required', request.url), 302);
+  }
+
   try {
     const accessToken = await getGoogleAccessToken(client.google_refresh_token, env);
-    let locationName = client.google_location_name;
 
-    if (!locationName) {
-      const allLocs = await listAllGoogleLocations(accessToken);
-      if (allLocs.length > 0) locationName = allLocs[0].locationName;
-    }
-    if (!locationName) return Response.redirect(new URL('/?msg=google_api_error', request.url), 302);
-
+    // L'API Business Information v1 attend "locations/{id}"
     const v1Location = locationName.includes('locations/')
       ? 'locations/' + locationName.split('locations/').pop()
       : locationName;
@@ -124,7 +125,7 @@ export async function handleUpdateGoogleProfileRoute(request, env, getGoogleAcce
     }
 
     const patchRes = await fetch(
-      `[https://mybusinessbusinessinformation.googleapis.com/v1/$](https://mybusinessbusinessinformation.googleapis.com/v1/$){v1Location}?updateMask=${encodeURIComponent(updateMask.join(','))}`,
+      `https://mybusinessbusinessinformation.googleapis.com/v1/${v1Location}?updateMask=${encodeURIComponent(updateMask.join(','))}`,
       {
         method: 'PATCH',
         headers: {
