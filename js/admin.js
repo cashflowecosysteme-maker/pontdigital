@@ -52,6 +52,9 @@ function openEditModal(c) {
   document.getElementById('edit-phone').value = c.phone || '';
   document.getElementById('edit-client_email').value = c.client_email || '';
   document.getElementById('edit-booking_calendar_url').value = c.booking_calendar_url || '';
+  document.getElementById('edit-twilio_sms_number').value = c.twilio_sms_number || '';
+  document.getElementById('edit-setter_alert_phone').value = c.setter_alert_phone || '';
+  document.getElementById('edit-google_review_url').value = c.google_review_url || '';
   document.getElementById('edit-heyzine_url').value = c.heyzine_url || '';
   document.getElementById('edit-interview_video_url').value = c.interview_video_url || '';
   document.getElementById('edit-cover_photo_url').value = c.cover_photo_url || '';

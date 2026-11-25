@@ -1,4 +1,8 @@
 import publicSiteWorker from './pontdigital/worker.js';
+import {
+  handleBookingWebhook, handleInboundTwilio, handleAppointmentAction,
+  runAppointmentCron, renderBookingRows, renderSmsRows, phone as normalizePdPhone
+} from './appointments-integration.js';
 import {saveMagazineIssue, toggleMagazineIssue, renderMagazinePanel} from './magazine-admin.js';
 import {
   handleReadGoogleProfileApi,
@@ -20,7 +24,7 @@ const STARRY_JS_URL = '/js/starry-bg.js';
 const ADMIN_JS_URL = '/js/admin.js';
 
 export default {
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
     try {
       const url = new URL(request.url);
       // Routage des deux domaines EXISTANTS vers les deux modules EXISTANTS.
@@ -89,6 +93,13 @@ export default {
       // 2. Webhook public Heyzine Pro (verrouillé par client_id -> alerte SMS agence)
       if (path === '/webhook/heyzine' && request.method === 'POST') {
         return handleHeyzineWebhook(request, env);
+      }
+      // A et B : webhooks externes authentifies, avant la session SuperAdmin.
+      if (path === '/webhook/booking' && request.method === 'POST') {
+        return handleBookingWebhook(request, env);
+      }
+      if (path === '/webhook/twilio/sms' && request.method === 'POST') {
+        return handleInboundTwilio(request, env, ctx);
       }
 
       // 3. Connexion & Déconnexion SuperAdmin
@@ -161,6 +172,10 @@ export default {
       if (path === '/api/setter/delete' && request.method === 'POST') {
         return handleDeleteAppointmentRoute(request, env);
       }
+      // C : confirmation par le Setter, prestation effectuee, avis autorise uniquement ensuite.
+      if (path === '/api/appointments/action' && request.method === 'POST') {
+        return handleAppointmentAction(request, env);
+      }
 
       // 10. Test SMS & suivi des leads Heyzine
       if (path === '/api/test-nyxia-sms' && request.method === 'POST') {
@@ -225,9 +240,14 @@ export default {
         ORDER BY a.created_at DESC
         LIMIT 25
       `).all();
+      const {results: recentSms} = await env.DB.prepare(`
+        SELECT m.*, c.business_name FROM pd_sms_messages m
+        JOIN clients c ON c.id=m.client_id WHERE m.direction IN ('in','out')
+        ORDER BY m.created_at DESC, m.id DESC LIMIT 25
+      `).all();
 
       return new Response(
-        renderDashboardHTML(clients, recentReviews, recentLeads, recentAppointments, url.searchParams.get('msg'), url.origin, magazineIssues),
+        renderDashboardHTML(clients, recentReviews, recentLeads, recentAppointments, url.searchParams.get('msg'), url.origin, magazineIssues, recentSms),
         { headers: { 'Content-Type': 'text/html; charset=utf-8' } }
       );
     } catch (err) {
@@ -236,7 +256,13 @@ export default {
   },
 
   async scheduled(event, env, ctx) {
-    ctx.waitUntil(syncAllConnectedClientsReviews(env));
+    // Conserver la synchronisation des avis existante exactement a 06:00 UTC.
+    if (event.cron === '0 6 * * *') ctx.waitUntil(syncAllConnectedClientsReviews(env));
+    // Nouveau cron pour rappels et demandes d'avis uniquement.
+    if (event.cron === '*/15 * * * *') ctx.waitUntil((async () => {
+      await ensureDatabaseReady(env.DB);
+      await runAppointmentCron(env);
+    })());
   }
 };
 
@@ -268,6 +294,9 @@ async function ensureDatabaseReady(db) {
         client_email TEXT,
         booking_calendar_url TEXT,
         booking_notes TEXT,
+        twilio_sms_number TEXT,
+        setter_alert_phone TEXT,
+        google_review_url TEXT,
         heyzine_url TEXT,
         interview_video_url TEXT,
         cover_photo_url TEXT,
@@ -330,9 +359,28 @@ async function ensureDatabaseReady(db) {
         duration_minutes INTEGER DEFAULT 30,
         setter_notes TEXT,
         gcal_event_url TEXT,
+        external_booking_id TEXT,
+        booking_source TEXT,
+        booking_status TEXT,
+        service_name TEXT,
+        prospect_city TEXT,
+        prospect_deadline TEXT,
+        sms_consent INTEGER NOT NULL DEFAULT 0,
+        review_sms_consent INTEGER NOT NULL DEFAULT 0,
+        attendance_confirmed_at TEXT,
+        service_completed_at TEXT,
+        reminder_24h_status TEXT,
+        reminder_2h_status TEXT,
+        review_sms_status TEXT,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
       )
-    `)
+    `),
+    db.prepare(`CREATE TABLE IF NOT EXISTS pd_sms_messages (
+      id INTEGER PRIMARY KEY AUTOINCREMENT, client_id INTEGER NOT NULL,
+      message_sid TEXT UNIQUE, phone_from TEXT, phone_to TEXT, body TEXT,
+      direction TEXT NOT NULL, created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )`)
   ]);
 
   const migrations = [
@@ -357,11 +405,31 @@ async function ensureDatabaseReady(db) {
     'ALTER TABLE clients ADD COLUMN google_review_count INTEGER',
     "ALTER TABLE google_posts ADD COLUMN topic_type TEXT DEFAULT 'STANDARD'",
     'ALTER TABLE google_posts ADD COLUMN media_url TEXT',
-    "ALTER TABLE heyzine_leads ADD COLUMN handling_status TEXT DEFAULT 'nouveau'"
+    "ALTER TABLE heyzine_leads ADD COLUMN handling_status TEXT DEFAULT 'nouveau'",
+    // A/B/C : colonnes ajoutees sans suppression ni modification des donnees historiques.
+    'ALTER TABLE clients ADD COLUMN twilio_sms_number TEXT',
+    'ALTER TABLE clients ADD COLUMN setter_alert_phone TEXT',
+    'ALTER TABLE clients ADD COLUMN google_review_url TEXT',
+    'ALTER TABLE appointments ADD COLUMN external_booking_id TEXT',
+    'ALTER TABLE appointments ADD COLUMN booking_source TEXT',
+    'ALTER TABLE appointments ADD COLUMN booking_status TEXT',
+    'ALTER TABLE appointments ADD COLUMN service_name TEXT',
+    'ALTER TABLE appointments ADD COLUMN prospect_city TEXT',
+    'ALTER TABLE appointments ADD COLUMN prospect_deadline TEXT',
+    'ALTER TABLE appointments ADD COLUMN sms_consent INTEGER NOT NULL DEFAULT 0',
+    'ALTER TABLE appointments ADD COLUMN review_sms_consent INTEGER NOT NULL DEFAULT 0',
+    'ALTER TABLE appointments ADD COLUMN attendance_confirmed_at TEXT',
+    'ALTER TABLE appointments ADD COLUMN service_completed_at TEXT',
+    'ALTER TABLE appointments ADD COLUMN reminder_24h_status TEXT',
+    'ALTER TABLE appointments ADD COLUMN reminder_2h_status TEXT',
+    'ALTER TABLE appointments ADD COLUMN review_sms_status TEXT',
+    'ALTER TABLE appointments ADD COLUMN updated_at TEXT'
   ];
   for (const sql of migrations) {
     try { await db.prepare(sql).run(); } catch (_) {}
   }
+  await db.prepare('CREATE UNIQUE INDEX IF NOT EXISTS idx_pd_booking_external ON appointments(client_id,external_booking_id)').run();
+  await db.prepare("CREATE UNIQUE INDEX IF NOT EXISTS idx_pd_twilio_unique ON clients(twilio_sms_number) WHERE twilio_sms_number IS NOT NULL AND twilio_sms_number <> ''").run();
 }
 
 // ============================================================================
@@ -1122,13 +1190,18 @@ async function handleAddClient(request, env) {
   const city = (formData.get('city') || '').trim();
   const category = (formData.get('category') || '').trim();
   if (!businessName || !city || !category) return Response.redirect(new URL('/?msg=error_fields', request.url), 302);
+  const assignedTwilio = normalizePdPhone(formData.get('twilio_sms_number'));
+  if (assignedTwilio && await env.DB.prepare('SELECT id FROM clients WHERE twilio_sms_number=?').bind(assignedTwilio).first()) {
+    return Response.redirect(new URL('/?msg=twilio_already_assigned', request.url), 302);
+  }
 
   const galleryJson = JSON.stringify((formData.get('gallery_urls') || '').split(',').map(s => s.trim()).filter(Boolean).slice(0, 5));
   const socialJson = buildSocialLinksJson(formData);
 
   await env.DB.prepare(`
-    INSERT INTO clients (business_name, city, category, services, service_areas, public_address, show_public_address, advertorial_text, social_links, phone, client_email, booking_calendar_url, booking_notes, heyzine_url, interview_video_url, cover_photo_url, gallery_urls)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO clients (business_name, city, category, services, service_areas, public_address, show_public_address, advertorial_text, social_links, phone, client_email, booking_calendar_url, booking_notes, heyzine_url, interview_video_url, cover_photo_url, gallery_urls,
+      twilio_sms_number, setter_alert_phone, google_review_url)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).bind(
     businessName, city, category,
     (formData.get('services') || '').trim(),
@@ -1144,7 +1217,10 @@ async function handleAddClient(request, env) {
     (formData.get('heyzine_url') || '').trim(),
     (formData.get('interview_video_url') || '').trim(),
     (formData.get('cover_photo_url') || '').trim(),
-    galleryJson
+    galleryJson,
+    normalizePdPhone(formData.get('twilio_sms_number')),
+    normalizePdPhone(formData.get('setter_alert_phone')),
+    (formData.get('google_review_url') || '').trim()
   ).run();
 
   return Response.redirect(new URL('/?msg=client_added', request.url), 302);
@@ -1157,6 +1233,10 @@ async function handleUpdateClientFull(request, env) {
   const city = (formData.get('city') || '').trim();
   const category = (formData.get('category') || '').trim();
   if (!clientId || !businessName || !city || !category) return Response.redirect(new URL('/?msg=error_fields', request.url), 302);
+  const assignedTwilio = normalizePdPhone(formData.get('twilio_sms_number'));
+  if (assignedTwilio && await env.DB.prepare('SELECT id FROM clients WHERE twilio_sms_number=? AND id<>?').bind(assignedTwilio,clientId).first()) {
+    return Response.redirect(new URL('/?msg=twilio_already_assigned', request.url), 302);
+  }
 
   const galleryJson = JSON.stringify((formData.get('gallery_urls') || '').split(',').map(s => s.trim()).filter(Boolean).slice(0, 5));
   const socialJson = buildSocialLinksJson(formData);
@@ -1164,7 +1244,8 @@ async function handleUpdateClientFull(request, env) {
   await env.DB.prepare(`
     UPDATE clients SET business_name = ?, city = ?, category = ?, services = ?, service_areas = ?,
       public_address = ?, show_public_address = ?, advertorial_text = ?, social_links = ?, phone = ?, client_email = ?,
-      booking_calendar_url = ?, booking_notes = ?, heyzine_url = ?, interview_video_url = ?, cover_photo_url = ?, gallery_urls = ?
+      booking_calendar_url = ?, booking_notes = ?, heyzine_url = ?, interview_video_url = ?, cover_photo_url = ?, gallery_urls = ?,
+      twilio_sms_number = ?, setter_alert_phone = ?, google_review_url = ?
     WHERE id = ?
   `).bind(
     businessName, city, category,
@@ -1181,7 +1262,10 @@ async function handleUpdateClientFull(request, env) {
     (formData.get('heyzine_url') || '').trim(),
     (formData.get('interview_video_url') || '').trim(),
     (formData.get('cover_photo_url') || '').trim(),
-    galleryJson, clientId
+    galleryJson,
+    normalizePdPhone(formData.get('twilio_sms_number')),
+    normalizePdPhone(formData.get('setter_alert_phone')),
+    (formData.get('google_review_url') || '').trim(), clientId
   ).run();
 
   return Response.redirect(new URL('/?msg=media_updated', request.url), 302);
@@ -1402,7 +1486,7 @@ function renderHoursTableRows() {
   `).join('');
 }
 
-function renderDashboardHTML(clients, recentReviews, recentLeads, recentAppointments, msg, origin, magazineIssues) {
+function renderDashboardHTML(clients, recentReviews, recentLeads, recentAppointments, msg, origin, magazineIssues, recentSms = []) {
   const alerts = {
     pwd_updated: 'Mot de passe interne mis à jour avec succès dans D1.',
     error_pwd: 'Erreur : le mot de passe doit contenir au moins 8 caractères et être identique.',
@@ -1432,7 +1516,9 @@ function renderDashboardHTML(clients, recentReviews, recentLeads, recentAppointm
     rdv_booked: 'Rendez-vous qualifié enregistré ! Clique sur « 📅 Invitation Google Agenda ↗ » dans le journal.',
     rdv_deleted: 'Rendez-vous retiré du journal.',
     magazine_saved: 'Édition de la revue enregistrée.',
-    magazine_invalid: 'Vérifie le mois, le titre et l’URL Heyzine (https://heyzine.com/...).'
+    magazine_invalid: 'Vérifie le mois, le titre et l’URL Heyzine (https://heyzine.com/...).',
+    booking_updated: "Statut du rendez-vous mis à jour dans Pont Digital (l'agenda externe conserve ses propres rendez-vous).",
+    twilio_already_assigned: 'Ce numéro SMS Twilio est déjà attribué à une autre entreprise. Aucune modification enregistrée.'
   };
 
   const gbpConnectedCount = clients.filter(c => Boolean(c.google_refresh_token)).length;
@@ -1475,6 +1561,9 @@ function renderDashboardHTML(clients, recentReviews, recentLeads, recentAppointm
       phone: c.phone || '',
       client_email: c.client_email || '',
       booking_calendar_url: c.booking_calendar_url || '',
+      twilio_sms_number: c.twilio_sms_number || '',
+      setter_alert_phone: c.setter_alert_phone || '',
+      google_review_url: c.google_review_url || '',
       heyzine_url: c.heyzine_url || '',
       interview_video_url: c.interview_video_url || '',
       cover_photo_url: c.cover_photo_url || '',
@@ -1547,10 +1636,10 @@ function renderDashboardHTML(clients, recentReviews, recentLeads, recentAppointm
       <td><strong style="color:#fff;">${escapeHtml(a.business_name)}</strong><div style="font-size:.76rem;color:var(--text-muted);">${escapeHtml(a.city)}</div></td>
       <td>${escapeHtml(a.prospect_name)}<div style="font-size:.78rem;color:var(--text-muted);">${escapeHtml(a.prospect_phone || '')} ${a.prospect_email ? '• ' + escapeHtml(a.prospect_email) : ''}</div></td>
       <td><span class="pill pill-ok">📅 ${escapeHtml(a.appointment_datetime.replace('T', ' '))} (${a.duration_minutes} min)</span></td>
-      <td style="font-size:.82rem;color:var(--text-secondary);max-width:240px;">${escapeHtml(a.setter_notes || '')}</td>
+      <td style="font-size:.82rem;color:var(--text-secondary);max-width:240px;">${escapeHtml(a.setter_notes || '')}${renderBookingRows(a)}</td>
       <td>
         <div class="actions-stack">
-          <a href="${escapeHtml(a.gcal_event_url)}" target="_blank" rel="noopener" class="btn-sm btn-gold">📅 Invitation Google Agenda ↗</a>
+          ${a.gcal_event_url ? `<a href="${escapeHtml(a.gcal_event_url)}" target="_blank" rel="noopener" class="btn-sm btn-gold">${a.external_booking_id ? '📅 Ouvrir le RDV dans l’agenda ↗' : '📅 Invitation Google Agenda ↗'}</a>` : '<span class="pill pill-muted">RDV reçu de l’agenda</span>'}
           <form method="POST" action="/api/setter/delete" style="margin:0;">
             <input type="hidden" name="id" value="${a.id}">
             <button type="submit" class="btn-sm btn-danger">✕</button>
@@ -1665,6 +1754,9 @@ function renderDashboardHTML(clients, recentReviews, recentLeads, recentAppointm
             <div class="field"><label>Téléphone public</label><input name="phone" placeholder="514-000-0000"></div>
             <div class="field"><label>Courriel vendeur (invitations RDV)</label><input type="email" name="client_email" placeholder="contact@entreprise.ca"></div>
             <div class="field"><label>Lien Prise de RDV Google Workspace (Setter)</label><input type="url" name="booking_calendar_url" placeholder="https://calendar.app.google/..."></div>
+            <div class="field"><label>Numéro SMS Twilio de CETTE entreprise (+1...)</label><input name="twilio_sms_number" placeholder="+15145551234"></div>
+            <div class="field"><label>Téléphone d'alerte Setter (optionnel ; sinon agence)</label><input name="setter_alert_phone" placeholder="+15145551234"></div>
+            <div class="field"><label>Lien direct pour laisser un avis Google (fourni par l'entreprise)</label><input type="url" name="google_review_url" placeholder="https://..."></div>
             <div class="field"><label>URL Page Heyzine (#page/X)</label><input type="url" name="heyzine_url" placeholder="https://heyzine.com/flip-book/...#page/1"></div>
             <div class="field"><label>URL Vidéo entrevue (YouTube/Vimeo/MP4)</label><input type="url" name="interview_video_url" placeholder="https://..."></div>
             <div class="field"><label>URL Photo couverture principale</label><input type="url" name="cover_photo_url" placeholder="https://..."></div>
@@ -1744,6 +1836,10 @@ function renderDashboardHTML(clients, recentReviews, recentLeads, recentAppointm
         </div>
       </section>
 
+      <section class="admin-card">
+        <h2 class="display" style="font-size:1.4rem;color:#fff;margin-bottom:14px;">B • SMS entrants et sortants des prospects (Twilio)</h2>
+        <div class="table-scroll"><table class="pd-table"><thead><tr><th>Entreprise</th><th>Telephone prospect</th><th>Message</th><th>Date UTC</th></tr></thead><tbody>${renderSmsRows(recentSms)}</tbody></table></div>
+      </section>
       <section class="admin-card">
         <h2 class="display" style="font-size:1.75rem;color:#fff;margin-bottom:14px;">Demandes entrantes depuis la Revue Heyzine</h2>
         <div class="table-scroll">
@@ -1985,6 +2081,9 @@ function renderDashboardHTML(clients, recentReviews, recentLeads, recentAppointm
           <div class="field"><label>Téléphone</label><input name="phone" id="edit-phone"></div>
           <div class="field"><label>Courriel vendeur (invitations RDV)</label><input type="email" name="client_email" id="edit-client_email"></div>
           <div class="field"><label>Lien Agenda Google Workspace</label><input type="url" name="booking_calendar_url" id="edit-booking_calendar_url"></div>
+          <div class="field"><label>Numero SMS Twilio reserve a l'entreprise (+1...)</label><input name="twilio_sms_number" id="edit-twilio_sms_number"></div>
+          <div class="field"><label>Telephone alertes Setter (optionnel)</label><input name="setter_alert_phone" id="edit-setter_alert_phone"></div>
+          <div class="field"><label>Lien avis Google</label><input type="url" name="google_review_url" id="edit-google_review_url"></div>
           <div class="field"><label>URL Page Heyzine (#page/X)</label><input type="url" name="heyzine_url" id="edit-heyzine_url"></div>
           <div class="field"><label>URL Vidéo entrevue</label><input type="url" name="interview_video_url" id="edit-interview_video_url"></div>
           <div class="field"><label>URL Photo couverture principale</label><input type="url" name="cover_photo_url" id="edit-cover_photo_url"></div>
