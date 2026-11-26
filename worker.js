@@ -74,7 +74,7 @@ export default {
 
       await ensureDatabaseReady(env.DB);
 
-      // Webhooks publics (Heyzine + Réservations + SMS Twilio entrant)
+      // Webhooks publics (Heyzine + Réservations + SMS Twilio entrant sur le numéro central)
       if (path === '/webhook/heyzine' && request.method === 'POST') {
         return handleHeyzineWebhook(request, env);
       }
@@ -267,7 +267,6 @@ async function ensureDatabaseReady(db) {
         google_review_count INTEGER,
         phone TEXT,
         client_email TEXT,
-        twilio_number TEXT,
         assigned_setter_phone TEXT,
         google_review_url TEXT,
         booking_calendar_url TEXT,
@@ -366,7 +365,6 @@ async function ensureDatabaseReady(db) {
     'ALTER TABLE clients ADD COLUMN cover_photo_url TEXT',
     'ALTER TABLE clients ADD COLUMN gallery_urls TEXT',
     'ALTER TABLE clients ADD COLUMN client_email TEXT',
-    'ALTER TABLE clients ADD COLUMN twilio_number TEXT',
     'ALTER TABLE clients ADD COLUMN assigned_setter_phone TEXT',
     'ALTER TABLE clients ADD COLUMN google_review_url TEXT',
     'ALTER TABLE clients ADD COLUMN booking_calendar_url TEXT',
@@ -512,7 +510,7 @@ async function handleBookingWebhook(request, env) {
   const setterTarget = client.assigned_setter_phone || env.AGENCY_ALERT_PHONE;
   if (setterTarget) {
     const alertMsg = `RDV À QUALIFIER (${client.business_name}) : ${prospectName} (${prospectPhone || prospectEmail || 'sans coord.'}) — ${appointmentDatetime.replace('T', ' ')} | ${combinedNotes.slice(0, 120)}`;
-    await sendTwilioSmsFrom(env, setterTarget, alertMsg, client.twilio_number || env.TWILIO_FROM_NUMBER);
+    await sendTwilioSms(env, setterTarget, alertMsg);
   }
 
   return jsonResponse({ ok: true, action: 'created', appointment_id: ins.meta?.last_row_id || null });
@@ -581,7 +579,7 @@ async function handleDeleteAppointmentRoute(request, env) {
 }
 
 // ============================================================================
-// BRIQUE B : SMS ENTRANTS TWILIO + RÉPONSES NYXIA + OUI / ANNULER + SETTER
+// BRIQUE B : SMS ENTRANTS TWILIO (NUMÉRO CENTRAL) + NYXIA + OUI / ANNULER
 // ============================================================================
 
 function normalizePhoneDigits(phone) {
@@ -605,19 +603,47 @@ function twimlMessageResponse(messageText) {
   return new Response(xml, { status: 200, headers: { 'Content-Type': 'text/xml; charset=utf-8' } });
 }
 
+async function resolveClientFromProspectPhone(db, fromPhone) {
+  const fromDigits = normalizePhoneDigits(fromPhone);
+  if (!fromDigits) return null;
+
+  const { results: appts } = await db.prepare(`
+    SELECT a.client_id, a.prospect_phone
+    FROM appointments a
+    WHERE a.prospect_phone IS NOT NULL AND a.prospect_phone != ''
+    ORDER BY a.created_at DESC
+  `).all();
+
+  const matchedAppt = (appts || []).find(a => normalizePhoneDigits(a.prospect_phone) === fromDigits);
+  if (matchedAppt?.client_id) {
+    return await db.prepare('SELECT * FROM clients WHERE id = ?').bind(matchedAppt.client_id).first();
+  }
+
+  const { results: threads } = await db.prepare(`
+    SELECT client_id, prospect_phone
+    FROM sms_threads
+    WHERE client_id IS NOT NULL
+    ORDER BY created_at DESC
+  `).all();
+
+  const matchedThread = (threads || []).find(t => normalizePhoneDigits(t.prospect_phone) === fromDigits);
+  if (matchedThread?.client_id) {
+    return await db.prepare('SELECT * FROM clients WHERE id = ?').bind(matchedThread.client_id).first();
+  }
+
+  return null;
+}
+
 async function handleTwilioIncomingSms(request, env) {
   const params = await request.formData();
   const fromPhone = String(params.get('From') || '').trim();
-  const toPhone = String(params.get('To') || '').trim();
   const bodyText = String(params.get('Body') || '').trim();
 
   if (!fromPhone || !bodyText) {
     return twimlMessageResponse('Merci pour votre message. Notre équipe vous répondra rapidement.');
   }
 
-  const normalizedTo = normalizePhoneDigits(toPhone);
-  const { results: matchedClients } = await env.DB.prepare('SELECT * FROM clients WHERE twilio_number IS NOT NULL').all();
-  const client = (matchedClients || []).find(c => normalizePhoneDigits(c.twilio_number) === normalizedTo) || null;
+  const client = await resolveClientFromProspectPhone(env.DB, fromPhone);
 
   await env.DB.prepare(`
     INSERT INTO sms_threads (client_id, prospect_phone, direction, message_body, handled_by)
@@ -627,49 +653,50 @@ async function handleTwilioIncomingSms(request, env) {
   const normalizedReply = bodyText.trim().toUpperCase();
   const fromDigits = normalizePhoneDigits(fromPhone);
 
-  // Vérification prioritaire d'une réponse OUI ou ANNULER sur un rendez-vous à venir
-  if (client && fromDigits.length >= 7) {
+  // Vérification prioritaire d'une réponse OUI ou ANNULER sur un rendez-vous
+  if (fromDigits.length >= 7) {
     const { results: appts } = await env.DB.prepare(`
-      SELECT * FROM appointments
-      WHERE client_id = ? AND status IN ('pending_qualification', 'confirmed', 'reschedule_requested')
-      ORDER BY appointment_datetime ASC
-    `).bind(client.id).all();
+      SELECT a.*, c.business_name, c.assigned_setter_phone, c.booking_calendar_url
+      FROM appointments a
+      JOIN clients c ON c.id = a.client_id
+      WHERE a.status IN ('pending_qualification', 'confirmed', 'reschedule_requested')
+      ORDER BY a.appointment_datetime ASC
+    `).all();
 
     const matchingAppt = (appts || []).find(a => normalizePhoneDigits(a.prospect_phone) === fromDigits);
 
     if (matchingAppt && /^(OUI|YES|CONFIRME|CONFIRMÉ|OK)$/i.test(normalizedReply)) {
       await env.DB.prepare(`UPDATE appointments SET status = 'confirmed' WHERE id = ?`).bind(matchingAppt.id).run();
-      const confirmMsg = `Merci ${matchingAppt.prospect_name} ! Votre rendez-vous avec ${client.business_name} est bien confirmé.`;
+      const confirmMsg = `Merci ${matchingAppt.prospect_name} ! Votre rendez-vous avec ${matchingAppt.business_name} est bien confirmé.`;
       await env.DB.prepare(`
         INSERT INTO sms_threads (client_id, prospect_phone, direction, message_body, handled_by)
         VALUES (?, ?, 'outbound', ?, 'system_confirm')
-      `).bind(client.id, fromPhone, confirmMsg).run();
+      `).bind(matchingAppt.client_id, fromPhone, confirmMsg).run();
       return twimlMessageResponse(confirmMsg);
     }
 
     if (matchingAppt && /^(ANNULER|CANCEL|REPORTER|CHANGER)$/i.test(normalizedReply)) {
       await env.DB.prepare(`UPDATE appointments SET status = 'reschedule_requested' WHERE id = ?`).bind(matchingAppt.id).run();
-      const setterTarget = client.assigned_setter_phone || env.AGENCY_ALERT_PHONE;
+      const setterTarget = matchingAppt.assigned_setter_phone || env.AGENCY_ALERT_PHONE;
       if (setterTarget) {
-        await sendTwilioSmsFrom(
+        await sendTwilioSms(
           env,
           setterTarget,
-          `À REPLANIFIER (${client.business_name}) : ${matchingAppt.prospect_name} (${fromPhone}) a demandé d'annuler/reporter le RDV du ${matchingAppt.appointment_datetime.replace('T', ' ')}.`,
-          client.twilio_number || env.TWILIO_FROM_NUMBER
+          `À REPLANIFIER (${matchingAppt.business_name}) : ${matchingAppt.prospect_name} (${fromPhone}) a demandé d'annuler/reporter le RDV du ${matchingAppt.appointment_datetime.replace('T', ' ')}.`
         );
       }
-      const cancelMsg = client.booking_calendar_url
-        ? `C'est noté pour ${client.business_name}. Voici le lien pour choisir un autre moment : ${client.booking_calendar_url} — notre équipe vous contactera aussi au besoin.`
-        : `C'est bien noté pour ${client.business_name}. Notre équipe va vous contacter sous peu pour replanifier votre moment.`;
+      const cancelMsg = matchingAppt.booking_calendar_url
+        ? `C'est noté pour ${matchingAppt.business_name}. Voici le lien pour choisir un autre moment : ${matchingAppt.booking_calendar_url} — notre équipe vous contactera aussi au besoin.`
+        : `C'est bien noté pour ${matchingAppt.business_name}. Notre équipe va vous contacter sous peu pour replanifier votre moment.`;
       await env.DB.prepare(`
         INSERT INTO sms_threads (client_id, prospect_phone, direction, message_body, handled_by)
         VALUES (?, ?, 'outbound', ?, 'system_reschedule')
-      `).bind(client.id, fromPhone, cancelMsg).run();
+      `).bind(matchingAppt.client_id, fromPhone, cancelMsg).run();
       return twimlMessageResponse(cancelMsg);
     }
   }
 
-  // Réponse encadrée de NyXia selon le contexte exact du client
+  // Réponse encadrée de NyXia selon le contexte du client (ou accueil général Pont Digital)
   const nyxiaReply = await generateNyxiaSmsReply({ env, client, prospectPhone: fromPhone, incomingMessage: bodyText });
   await env.DB.prepare(`
     INSERT INTO sms_threads (client_id, prospect_phone, direction, message_body, handled_by)
@@ -681,11 +708,10 @@ async function handleTwilioIncomingSms(request, env) {
   const setterPhone = client?.assigned_setter_phone || env.AGENCY_ALERT_PHONE;
   if (needsHumanSetter && setterPhone) {
     const bizLabel = client ? `${client.business_name} (${client.city})` : 'Pont Digital';
-    await sendTwilioSmsFrom(
+    await sendTwilioSms(
       env,
       setterPhone,
-      `PRISE EN CHARGE SETTER (${bizLabel}) — Prospect ${fromPhone} : "${bodyText.slice(0, 140)}"`,
-      client?.twilio_number || env.TWILIO_FROM_NUMBER
+      `PRISE EN CHARGE SETTER (${bizLabel}) — Prospect ${fromPhone} : "${bodyText.slice(0, 140)}"`
     );
   }
 
@@ -695,12 +721,12 @@ async function handleTwilioIncomingSms(request, env) {
 async function generateNyxiaSmsReply({ env, client, prospectPhone, incomingMessage }) {
   const bizName = client ? client.business_name : 'Pont Digital';
   const city = client ? client.city : 'Québec';
-  const category = client ? client.category : 'services locaux';
+  const category = client ? client.category : 'visibilité et croissance locale';
   const services = client?.services ? `Services : ${client.services}. ` : '';
   const areas = client?.service_areas ? `Territoire : ${client.service_areas}. ` : '';
   const calLink = client?.booking_calendar_url ? `Réservation : ${client.booking_calendar_url}` : '';
 
-  const fallback = `Bonjour ! Merci d'avoir écrit à ${bizName} (${city}). ${services}${calLink || 'Notre équipe vous répond rapidement.'}`.trim();
+  const fallback = `Bonjour ! Merci pour votre message à ${bizName} (${city}). ${services}${calLink || 'Notre équipe vous répond rapidement.'}`.trim();
   if (!env.OPENROUTER_API_KEY) return fallback;
 
   const model = env.OPENROUTER_MODEL || 'google/gemini-2.5-flash';
@@ -721,7 +747,7 @@ async function generateNyxiaSmsReply({ env, client, prospectPhone, incomingMessa
           {
             role: 'system',
             content:
-              "Tu es NyXia, assistante d'accueil par texto pour l'agence Pont Digital au Québec. Réponds en français québécois chaleureux, clair et bref (maximum 320 caractères, un seul SMS, sans hashtag). Utilise UNIQUEMENT les informations fournies sur l'entreprise : n'invente jamais un prix ou un horaire absent. Si le prospect veut un rendez-vous et qu'un lien d'agenda est fourni, partage-le naturellement et indique qu'un membre de l'équipe peut valider les détails avec lui."
+              "Tu es NyXia, assistante d'accueil par texto pour l'agence Pont Digital au Québec. Réponds en français québécois chaleureux, clair et bref (maximum 320 caractères, un seul SMS, sans hashtag). Utilise UNIQUEMENT les informations fournies : n'invente jamais un prix ou un horaire absent. Si un lien d'agenda est fourni et que le prospect souhaite un rendez-vous, partage-le naturellement et indique qu'un membre de l'équipe peut valider les détails avec lui."
           },
           {
             role: 'user',
@@ -745,7 +771,7 @@ async function generateNyxiaSmsReply({ env, client, prospectPhone, incomingMessa
 async function processAppointmentsCron(env) {
   const now = new Date();
   const { results: rows } = await env.DB.prepare(`
-    SELECT a.*, c.business_name, c.city, c.twilio_number, c.assigned_setter_phone, c.google_review_url
+    SELECT a.*, c.business_name, c.city, c.assigned_setter_phone, c.google_review_url
     FROM appointments a
     JOIN clients c ON c.id = a.client_id
     WHERE a.status != 'cancelled' AND a.prospect_phone IS NOT NULL AND a.prospect_phone != ''
@@ -757,21 +783,20 @@ async function processAppointmentsCron(env) {
     const hoursUntilStart = (startMs - now.getTime()) / 3600000;
     const durationHours = (appt.duration_minutes || 30) / 60;
     const hoursSinceEnd = (now.getTime() - (startMs + durationHours * 3600000)) / 3600000;
-    const fromNum = appt.twilio_number || env.TWILIO_FROM_NUMBER;
 
-    // Rappel 24 h avant (fenêtre entre 23 h et 25 h)
+    // Rappel 24 h avant (fenêtre entre 22 h et 25 h)
     if (!appt.reminder_24h_sent && hoursUntilStart <= 25 && hoursUntilStart >= 22) {
       const msg24 = `Bonjour ${appt.prospect_name}, rappel de votre rendez-vous avec ${appt.business_name} demain (${appt.appointment_datetime.replace('T', ' ')}). Répondez OUI pour confirmer ou ANNULER si besoin.`;
-      const status = await sendTwilioSmsFrom(env, appt.prospect_phone, msg24, fromNum);
+      const status = await sendTwilioSms(env, appt.prospect_phone, msg24);
       if (status === 'sent') {
         await env.DB.prepare(`UPDATE appointments SET reminder_24h_sent = 1 WHERE id = ?`).bind(appt.id).run();
       }
     }
 
-    // Rappel 2 h avant (fenêtre entre 1,5 h et 2,5 h)
+    // Rappel 2 h avant (fenêtre entre 1,25 h et 2,5 h)
     if (!appt.reminder_2h_sent && hoursUntilStart <= 2.5 && hoursUntilStart >= 1.25) {
       const msg2 = `Bonjour ${appt.prospect_name}, votre rendez-vous avec ${appt.business_name} approche (${appt.appointment_datetime.replace('T', ' ')}). Répondez OUI pour confirmer votre présence.`;
-      const status = await sendTwilioSmsFrom(env, appt.prospect_phone, msg2, fromNum);
+      const status = await sendTwilioSms(env, appt.prospect_phone, msg2);
       if (status === 'sent') {
         await env.DB.prepare(`UPDATE appointments SET reminder_2h_sent = 1 WHERE id = ?`).bind(appt.id).run();
       }
@@ -780,7 +805,7 @@ async function processAppointmentsCron(env) {
     // Demande d'avis Google automatique 2 h après un rendez-vous confirmé
     if (!appt.review_sms_sent && appt.status === 'confirmed' && hoursSinceEnd >= 2 && hoursSinceEnd <= 24 && appt.google_review_url) {
       const reviewMsg = `Merci ${appt.prospect_name} pour votre confiance chez ${appt.business_name} ! Si vous avez 30 secondes, votre avis aide d'autres personnes à nous découvrir : ${appt.google_review_url}`;
-      const status = await sendTwilioSmsFrom(env, appt.prospect_phone, reviewMsg, fromNum);
+      const status = await sendTwilioSms(env, appt.prospect_phone, reviewMsg);
       if (status === 'sent') {
         await env.DB.prepare(`UPDATE appointments SET review_sms_sent = 1 WHERE id = ?`).bind(appt.id).run();
       }
@@ -961,7 +986,7 @@ async function generateNyxiaReviewReply({ env, businessName, city, category, rev
 }
 
 // ============================================================================
-// WEBHOOK HEYZINE PRO -> NYXIA -> SMS SETTER
+// WEBHOOK HEYZINE PRO -> NYXIA -> SMS SETTER (NUMÉRO CENTRAL TWILIO)
 // ============================================================================
 
 async function handleHeyzineWebhook(request, env) {
@@ -1044,7 +1069,7 @@ async function processLeadWithNyxiaAndSms({ env, client, prospectName, prospectC
   const targetPhone = client?.assigned_setter_phone || env.AGENCY_ALERT_PHONE;
   let smsStatus = 'agency_phone_missing';
   if (targetPhone) {
-    smsStatus = await sendTwilioSmsFrom(env, targetPhone, smsText, client?.twilio_number || env.TWILIO_FROM_NUMBER);
+    smsStatus = await sendTwilioSms(env, targetPhone, smsText);
   }
 
   await env.DB.prepare(`
@@ -1092,15 +1117,11 @@ async function generateNyxiaSmsAlert({ env, businessName, prospectName, prospect
   }
 }
 
-async function sendTwilioSmsFrom(env, rawToPhone, bodyText, rawFromPhone) {
-  const fromNumber = rawFromPhone || env.TWILIO_FROM_NUMBER;
-  if (!env.TWILIO_ACCOUNT_SID || !env.TWILIO_AUTH_TOKEN || !fromNumber) return 'twilio_not_configured';
+async function sendTwilioSms(env, rawToPhone, bodyText) {
+  if (!env.TWILIO_ACCOUNT_SID || !env.TWILIO_AUTH_TOKEN || !env.TWILIO_FROM_NUMBER) return 'twilio_not_configured';
   const digits = String(rawToPhone || '').replace(/\D/g, '');
   if (!digits) return 'invalid_phone';
   const toPhone = digits.length === 10 ? `+1${digits}` : (String(rawToPhone).startsWith('+') ? String(rawToPhone) : `+${digits}`);
-  const fromDigits = String(fromNumber).replace(/\D/g, '');
-  const formattedFrom = fromDigits.length === 10 ? `+1${fromDigits}` : (String(fromNumber).startsWith('+') ? String(fromNumber) : `+${fromDigits}`);
-
   try {
     const res = await fetch(
       `https://api.twilio.com/2010-04-01/Accounts/${env.TWILIO_ACCOUNT_SID}/Messages.json`,
@@ -1110,7 +1131,7 @@ async function sendTwilioSmsFrom(env, rawToPhone, bodyText, rawFromPhone) {
           'Authorization': 'Basic ' + btoa(`${env.TWILIO_ACCOUNT_SID}:${env.TWILIO_AUTH_TOKEN}`),
           'Content-Type': 'application/x-www-form-urlencoded'
         },
-        body: new URLSearchParams({ To: toPhone, From: formattedFrom, Body: bodyText })
+        body: new URLSearchParams({ To: toPhone, From: env.TWILIO_FROM_NUMBER, Body: bodyText })
       }
     );
     return res.ok ? 'sent' : 'twilio_error';
@@ -1494,10 +1515,10 @@ async function handleAddClient(request, env) {
   await env.DB.prepare(`
     INSERT INTO clients (
       business_name, city, category, services, service_areas, public_address, show_public_address,
-      advertorial_text, social_links, phone, client_email, twilio_number, assigned_setter_phone,
+      advertorial_text, social_links, phone, client_email, assigned_setter_phone,
       google_review_url, booking_calendar_url, booking_notes, heyzine_url, interview_video_url,
       cover_photo_url, gallery_urls
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).bind(
     businessName, city, category,
     (formData.get('services') || '').trim(),
@@ -1508,7 +1529,6 @@ async function handleAddClient(request, env) {
     socialJson,
     (formData.get('phone') || '').trim(),
     (formData.get('client_email') || '').trim(),
-    (formData.get('twilio_number') || '').trim(),
     (formData.get('assigned_setter_phone') || '').trim(),
     (formData.get('google_review_url') || '').trim(),
     (formData.get('booking_calendar_url') || '').trim(),
@@ -1536,7 +1556,7 @@ async function handleUpdateClientFull(request, env) {
   await env.DB.prepare(`
     UPDATE clients SET business_name = ?, city = ?, category = ?, services = ?, service_areas = ?,
       public_address = ?, show_public_address = ?, advertorial_text = ?, social_links = ?, phone = ?,
-      client_email = ?, twilio_number = ?, assigned_setter_phone = ?, google_review_url = ?,
+      client_email = ?, assigned_setter_phone = ?, google_review_url = ?,
       booking_calendar_url = ?, booking_notes = ?, heyzine_url = ?, interview_video_url = ?,
       cover_photo_url = ?, gallery_urls = ?
     WHERE id = ?
@@ -1550,7 +1570,6 @@ async function handleUpdateClientFull(request, env) {
     socialJson,
     (formData.get('phone') || '').trim(),
     (formData.get('client_email') || '').trim(),
-    (formData.get('twilio_number') || '').trim(),
     (formData.get('assigned_setter_phone') || '').trim(),
     (formData.get('google_review_url') || '').trim(),
     (formData.get('booking_calendar_url') || '').trim(),
@@ -1851,7 +1870,6 @@ function renderDashboardHTML(clients, recentReviews, recentLeads, recentAppointm
       social_links: c.social_links || '{}',
       phone: c.phone || '',
       client_email: c.client_email || '',
-      twilio_number: c.twilio_number || '',
       assigned_setter_phone: c.assigned_setter_phone || '',
       google_review_url: c.google_review_url || '',
       booking_calendar_url: c.booking_calendar_url || '',
@@ -1876,7 +1894,6 @@ function renderDashboardHTML(clients, recentReviews, recentLeads, recentAppointm
               <div style="font-size:.8rem;color:var(--text-muted);">${escapeHtml(c.category)} • ${escapeHtml(c.city)}</div>
               ${c.public_address ? `<div style="font-size:.75rem;color:var(--text-secondary);">🏠 ${escapeHtml(c.public_address)}</div>` : ''}
               ${c.service_areas ? `<div style="font-size:.75rem;color:var(--primary-light);">📍 ${escapeHtml(c.service_areas)}</div>` : ''}
-              ${c.twilio_number ? `<div style="font-size:.74rem;color:var(--gold);">📱 SMS Client : ${escapeHtml(c.twilio_number)}</div>` : ''}
               <div style="font-size:.76rem;color:var(--text-secondary);">${c.rdv_count || 0} RDV • ${c.lead_count || 0} leads • ${ratingBadge} • ${photosCount} photo(s)</div>
             </div>
           </div>
@@ -2043,7 +2060,6 @@ function renderDashboardHTML(clients, recentReviews, recentLeads, recentAppointm
             <div class="field"><label>Territoire desservi (villes / région)</label><input name="service_areas" placeholder="Ex: Saint-Calixte, Sainte-Julienne, Rawdon, Lanaudière"></div>
             <div class="field"><label>Téléphone public</label><input name="phone" placeholder="514-000-0000"></div>
             <div class="field"><label>Courriel vendeur (invitations RDV)</label><input type="email" name="client_email" placeholder="contact@entreprise.ca"></div>
-            <div class="field"><label>Numéro SMS Twilio dédié au client (fiche Google)</label><input name="twilio_number" placeholder="+14505550199"></div>
             <div class="field"><label>Téléphone du Setter assigné (alertes &amp; RDV)</label><input name="assigned_setter_phone" placeholder="+14505550188"></div>
             <div class="field"><label>Lien direct Avis Google (SMS post-RDV)</label><input type="url" name="google_review_url" placeholder="https://g.page/r/.../review"></div>
             <div class="field"><label>Lien Prise de RDV Google Workspace (Setter)</label><input type="url" name="booking_calendar_url" placeholder="https://calendar.app.google/..."></div>
@@ -2362,7 +2378,6 @@ function renderDashboardHTML(clients, recentReviews, recentLeads, recentAppointm
           <div class="field"><label>Territoire desservi</label><input name="service_areas" id="edit-service_areas"></div>
           <div class="field"><label>Téléphone</label><input name="phone" id="edit-phone"></div>
           <div class="field"><label>Courriel vendeur (invitations RDV)</label><input type="email" name="client_email" id="edit-client_email"></div>
-          <div class="field"><label>Numéro SMS Twilio dédié au client</label><input name="twilio_number" id="edit-twilio_number"></div>
           <div class="field"><label>Téléphone du Setter assigné</label><input name="assigned_setter_phone" id="edit-assigned_setter_phone"></div>
           <div class="field"><label>Lien direct Avis Google (SMS post-RDV)</label><input type="url" name="google_review_url" id="edit-google_review_url"></div>
           <div class="field"><label>Lien Agenda Google Workspace</label><input type="url" name="booking_calendar_url" id="edit-booking_calendar_url"></div>
@@ -2373,12 +2388,12 @@ function renderDashboardHTML(clients, recentReviews, recentLeads, recentAppointm
         <div class="field" style="margin-top:12px;"><label>Adresse de l’établissement</label><input name="public_address" id="edit-public_address"></div>
         <label class="check-row"><input type="checkbox" name="show_public_address" id="edit-show_public_address" value="1"> Autoriser l’affichage de l’adresse sur le répertoire public</label>
         <div class="field-grid" style="margin-top:12px;">
-          <div class="field"><label>Site web</label><input type="url" name="social_website" id="edit-social_website"></div>
-          <div class="field"><label>Facebook</label><input type="url" name="social_facebook" id="edit-social_facebook"></div>
-          <div class="field"><label>Instagram</label><input type="url" name="social_instagram" id="edit-social_instagram"></div>
-          <div class="field"><label>LinkedIn</label><input type="url" name="social_linkedin" id="edit-social_linkedin"></div>
-          <div class="field"><label>TikTok</label><input type="url" name="social_tiktok" id="edit-social_tiktok"></div>
-          <div class="field"><label>YouTube</label><input type="url" name="social_youtube" id="edit-social_youtube"></div>
+          <div class="field"><label>Site web</label><input name="social_website" id="edit-social_website"></div>
+          <div class="field"><label>Facebook</label><input name="social_facebook" id="edit-social_facebook"></div>
+          <div class="field"><label>Instagram</label><input name="social_instagram" id="edit-social_instagram"></div>
+          <div class="field"><label>LinkedIn</label><input name="social_linkedin" id="edit-social_linkedin"></div>
+          <div class="field"><label>TikTok</label><input name="social_tiktok" id="edit-social_tiktok"></div>
+          <div class="field"><label>YouTube</label><input name="social_youtube" id="edit-social_youtube"></div>
         </div>
         <div class="field" style="margin-top:12px;"><label>Texte narratif du publireportage</label><textarea name="advertorial_text" id="edit-advertorial_text" rows="3"></textarea></div>
         <div class="field" style="margin-top:12px;"><label>Consignes Setters</label><input name="booking_notes" id="edit-booking_notes"></div>
