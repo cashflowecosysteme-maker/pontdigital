@@ -42,7 +42,8 @@ export default {
           publicPath === '/index2.html' ||
           publicPath === '/pontdigital/index2' ||
           publicPath === '/pontdigital/index2.html';
-        const isPublicAsset = isPublicHome || isPublicAgency ||
+        const legalPage = /^\/(?:pontdigital\/)?(condition|politique)(?:\.html)?$/.exec(publicPath);
+        const isPublicAsset = isPublicHome || isPublicAgency || legalPage ||
           publicPath.startsWith('/css/') ||
           publicPath.startsWith('/js/') ||
           publicPath.startsWith('/images/');
@@ -53,7 +54,8 @@ export default {
           return new Response('Methode non autorisee', { status: 405 });
         }
         const publicUrl = new URL(request.url);
-        publicUrl.pathname = isPublicHome ? '/pontdigital/' :
+        publicUrl.pathname = legalPage ? '/pontdigital/' + legalPage[1] :
+          isPublicHome ? '/pontdigital/' :
           (isPublicAgency ? '/pontdigital/index2' : '/pontdigital' + publicPath);
         return publicSiteWorker.fetch(new Request(publicUrl.toString(), request), env);
       }
