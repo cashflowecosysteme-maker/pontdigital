@@ -2,10 +2,6 @@ name = "pontdigital-public"
 main = "worker.js"
 compatibility_date = "2026-11-01"
 
-routes = [
-  { pattern = "pontdigital.nyxia.top", custom_domain = true }
-]
-
 [assets]
 directory = "./"
 binding = "ASSETS"

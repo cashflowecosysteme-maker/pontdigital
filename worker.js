@@ -42,7 +42,9 @@ export default {
           publicPath === '/index2.html' ||
           publicPath === '/pontdigital/index2' ||
           publicPath === '/pontdigital/index2.html';
-        const isPublicAsset = isPublicHome || isPublicAgency ||
+        const isPublicLegal = publicPath === '/condition.html' ||
+          publicPath === '/politique.html';
+        const isPublicAsset = isPublicHome || isPublicAgency || isPublicLegal ||
           publicPath.startsWith('/css/') ||
           publicPath.startsWith('/js/') ||
           publicPath.startsWith('/images/');
