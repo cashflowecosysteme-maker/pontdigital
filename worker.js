@@ -42,8 +42,8 @@ export default {
           publicPath === '/index2.html' ||
           publicPath === '/pontdigital/index2' ||
           publicPath === '/pontdigital/index2.html';
-        const isPublicLegal = publicPath === '/condition.html' ||
-          publicPath === '/politique.html';
+        const legalPage = /^\/(?:pontdigital\/)?(condition|politique)(?:\.html)?$/.exec(publicPath);
+        const isPublicLegal = Boolean(legalPage);
         const isPublicAsset = isPublicHome || isPublicAgency || isPublicLegal ||
           publicPath.startsWith('/css/') ||
           publicPath.startsWith('/js/') ||
@@ -55,8 +55,9 @@ export default {
           return new Response('Methode non autorisee', { status: 405 });
         }
         const publicUrl = new URL(request.url);
-        publicUrl.pathname = isPublicHome ? '/pontdigital/' :
-          (isPublicAgency ? '/pontdigital/index2' : '/pontdigital' + publicPath);
+        publicUrl.pathname = isPublicLegal ? `/pontdigital/${legalPage[1]}.html` :
+          (isPublicHome ? '/pontdigital/' :
+          (isPublicAgency ? '/pontdigital/index2' : '/pontdigital' + publicPath));
         return publicSiteWorker.fetch(new Request(publicUrl.toString(), request), env);
       }
       const path = url.pathname;
