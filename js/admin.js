@@ -51,10 +51,11 @@ function openEditModal(c) {
   document.getElementById('edit-social_youtube').value = socials.youtube || '';
   document.getElementById('edit-phone').value = c.phone || '';
   document.getElementById('edit-client_email').value = c.client_email || '';
+  var setterPhoneEl = document.getElementById('edit-assigned_setter_phone');
+  if (setterPhoneEl) setterPhoneEl.value = c.assigned_setter_phone || '';
+  var reviewUrlEl = document.getElementById('edit-google_review_url');
+  if (reviewUrlEl) reviewUrlEl.value = c.google_review_url || '';
   document.getElementById('edit-booking_calendar_url').value = c.booking_calendar_url || '';
-  document.getElementById('edit-twilio_sms_number').value = c.twilio_sms_number || '';
-  document.getElementById('edit-setter_alert_phone').value = c.setter_alert_phone || '';
-  document.getElementById('edit-google_review_url').value = c.google_review_url || '';
   document.getElementById('edit-heyzine_url').value = c.heyzine_url || '';
   document.getElementById('edit-interview_video_url').value = c.interview_video_url || '';
   document.getElementById('edit-cover_photo_url').value = c.cover_photo_url || '';
@@ -157,19 +158,16 @@ function resetProfileLoadedState() {
   var clearConfirm = document.getElementById('confirm-clear-special-hours');
   if (clearConfirm) clearConfirm.value = '0';
 
-  // Réinitialiser tous les champs texte pour éviter toute fuite entre deux commerçants
   ['profile-description', 'profile-services', 'profile-service-areas', 'profile-categories', 'profile-notes'].forEach(function (id) {
     var el = document.getElementById(id);
     if (el) el.value = '';
   });
 
-  // Décocher toutes les cases de publication
   ['apply-description', 'apply-hours', 'apply-special-hours'].forEach(function (id) {
     var chk = document.getElementById(id);
     if (chk) chk.checked = false;
   });
 
-  // Débloquer les boutons si un chargement précédent était encore en cours
   var loadBtn = document.getElementById('btn-load-gbp');
   if (loadBtn) {
     loadBtn.disabled = false;
@@ -272,7 +270,6 @@ async function loadCurrentGoogleProfile() {
     var res = await fetch('/api/google/read-profile?client_id=' + encodeURIComponent(clientId));
     var data = await res.json();
 
-    // PROTECTION CHANGEMENT RAPIDE : ignorer toute réponse qui ne correspond plus au client sélectionné
     if (reqSeq !== gbpLoadRequestSeq || select.value !== clientId) {
       return;
     }
@@ -342,7 +339,6 @@ async function draftProfileWithNyxia() {
     });
     var data = await res.json();
 
-    // PROTECTION CHANGEMENT RAPIDE : ignorer toute réponse IA qui ne correspond plus au client sélectionné
     if (reqSeq !== gbpNyxiaRequestSeq || select.value !== clientId) {
       return;
     }
