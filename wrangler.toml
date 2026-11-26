@@ -18,4 +18,4 @@ database_name = "pont-digital"
 database_id = "6686e683-69d3-4044-9566-309480bc949e"
 
 [triggers]
-crons = ["0 6 * * *"]
+crons = ["*/15 * * * *"]
