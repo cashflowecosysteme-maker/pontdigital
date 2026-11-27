@@ -33,8 +33,9 @@ export async function renderMonthlyReport(request, db, escapeHtml) {
     end.setUTCMonth(end.getUTCMonth() + 1);
     end.setUTCDate(2);
     const range = [client.id, start.toISOString().slice(0, 10), end.toISOString().slice(0, 10)];
-    const [leads, sms, appointments, posts, replies] = await db.batch([
-      db.prepare('SELECT created_at AS date FROM heyzine_leads WHERE client_id = ? AND created_at >= ? AND created_at < ?').bind(...range),
+    const [leads, chatgptLeads, sms, appointments, posts, replies] = await db.batch([
+      db.prepare("SELECT created_at AS date FROM heyzine_leads WHERE COALESCE(source_channel, 'heyzine') = 'heyzine' AND client_id = ? AND created_at >= ? AND created_at < ?").bind(...range),
+      db.prepare("SELECT created_at AS date FROM heyzine_leads WHERE source_channel = 'chatgpt' AND client_id = ? AND created_at >= ? AND created_at < ?").bind(...range),
       db.prepare("SELECT created_at AS date FROM sms_threads WHERE client_id = ? AND direction = 'inbound' AND created_at >= ? AND created_at < ?").bind(...range),
       db.prepare('SELECT appointment_datetime AS date, status FROM appointments WHERE client_id = ? AND appointment_datetime >= ? AND appointment_datetime < ?').bind(...range),
       db.prepare('SELECT created_at AS date FROM google_posts WHERE client_id = ? AND created_at >= ? AND created_at < ?').bind(...range),
@@ -46,6 +47,7 @@ export async function renderMonthlyReport(request, db, escapeHtml) {
     }).length;
     const metrics = [
       ['Demandes reçues via Heyzine', leads],
+      ['Demandes reçues via ChatGPT', chatgptLeads],
       ['Textos reçus et associés à l’entreprise', sms],
       ['Rendez-vous confirmés', appointments, row => row.status === 'confirmed', true],
       ['Rendez-vous à qualifier', appointments, row => (row.status || 'pending_qualification') === 'pending_qualification', true],

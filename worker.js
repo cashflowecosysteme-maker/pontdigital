@@ -82,6 +82,9 @@ export default {
       if (path === '/webhook/heyzine' && request.method === 'POST') {
         return handleHeyzineWebhook(request, env);
       }
+      if (path === '/webhook/chatgpt' && request.method === 'POST') {
+        return handleChatgptLeadWebhook(request, env);
+      }
       if (path === '/api/webhook/booking' && request.method === 'POST') {
         return handleBookingWebhook(request, env);
       }
@@ -399,6 +402,9 @@ async function ensureDatabaseReady(db) {
     "ALTER TABLE google_posts ADD COLUMN topic_type TEXT DEFAULT 'STANDARD'",
     'ALTER TABLE google_posts ADD COLUMN media_url TEXT',
     "ALTER TABLE heyzine_leads ADD COLUMN handling_status TEXT DEFAULT 'nouveau'",
+    'ALTER TABLE heyzine_leads ADD COLUMN source_channel TEXT',
+    'ALTER TABLE heyzine_leads ADD COLUMN submission_id TEXT',
+    'CREATE UNIQUE INDEX IF NOT EXISTS leads_source_submission ON heyzine_leads (source_channel, client_id, submission_id)',
     'ALTER TABLE appointments ADD COLUMN external_event_id TEXT',
     'ALTER TABLE appointments ADD COLUMN service_requested TEXT',
     'ALTER TABLE appointments ADD COLUMN city TEXT',
@@ -524,8 +530,6 @@ async function handleBookingWebhook(request, env) {
     combinedNotes, gcalUrl
   ).run();
 
-  const alertMsg = `RDV À QUALIFIER (${client.business_name}) : ${prospectName} (${prospectPhone || prospectEmail || 'sans coord.'}) — ${appointmentDatetime.replace('T', ' ')} | ${combinedNotes.slice(0, 120)}`;
-  await sendOfficeSms(env, alertMsg);
 
   return jsonResponse({ ok: true, action: 'created', appointment_id: ins.meta?.last_row_id || null });
 }
@@ -996,6 +1000,44 @@ async function generateNyxiaReviewReply({ env, businessName, city, category, rev
 // ============================================================================
 // WEBHOOK HEYZINE PRO -> NYXIA -> SMS AU BUREAU
 // ============================================================================
+
+async function handleChatgptLeadWebhook(request, env) {
+  const secret = env.CHATGPT_LEAD_WEBHOOK_SECRET;
+  if (!secret) return jsonResponse({ ok: false, error: 'Canal ChatGPT non connecté.' }, 503);
+  const token = request.headers.get('X-Webhook-Token') || '';
+  if (!timingSafeEqual(token, secret)) return jsonResponse({ ok: false, error: 'Accès refusé.' }, 401);
+
+  let data;
+  try {
+    data = await request.json();
+  } catch {
+    return jsonResponse({ ok: false, error: 'Format JSON invalide.' }, 400);
+  }
+
+  const clientId = new URL(request.url).searchParams.get('client_id') || String(data?.client_id ?? '');
+  const submissionId = String(data?.submission_id ?? '').trim();
+  const name = String(data?.name ?? '').trim().slice(0, 120);
+  const contact = [data?.phone, data?.email].map(value => String(value ?? '').trim()).filter(Boolean).join(' | ').slice(0, 240);
+  const message = String(data?.message ?? '').trim().slice(0, 2000);
+  if (!/^\d+$/.test(clientId) || !submissionId || submissionId.length > 200 || !name || !contact || !message) {
+    return jsonResponse({ ok: false, error: 'Entreprise, identifiant de soumission, nom, coordonnées et demande requis.' }, 400);
+  }
+  const client = await env.DB.prepare('SELECT id, business_name FROM clients WHERE id = ?').bind(clientId).first();
+  if (!client) return jsonResponse({ ok: false, error: 'Entreprise introuvable.' }, 404);
+
+  const sms = `PONT DIGITAL · Demande ChatGPT · ${client.business_name} : ${name} (${contact}) — ${message.slice(0, 100)}`;
+  const inserted = await env.DB.prepare(`
+    INSERT INTO heyzine_leads (client_id, prospect_name, prospect_contact, prospect_message, source_channel, submission_id, nyxia_sms_text)
+    VALUES (?, ?, ?, ?, 'chatgpt', ?, ?)
+    ON CONFLICT(source_channel, client_id, submission_id) DO NOTHING
+  `).bind(client.id, name, contact, message, submissionId, sms).run();
+  if (!inserted.meta?.changes) return jsonResponse({ ok: true, duplicate: true });
+
+  const smsStatus = await sendOfficeSms(env, sms);
+  await env.DB.prepare("UPDATE heyzine_leads SET sms_status = ? WHERE source_channel = 'chatgpt' AND client_id = ? AND submission_id = ?")
+    .bind(smsStatus, client.id, submissionId).run();
+  return jsonResponse({ ok: true, sms_status: smsStatus });
+}
 
 async function handleHeyzineWebhook(request, env) {
   const url = new URL(request.url);
@@ -1945,6 +1987,7 @@ function renderDashboardHTML(clients, recentReviews, recentLeads, recentAppointm
     const isConnected = Boolean(c.google_refresh_token);
     const hasCal = Boolean(c.booking_calendar_url);
     const webhookClientUrl = `${origin}/webhook/heyzine?client_id=${c.id}`;
+    const chatgptWebhookUrl = `${origin}/webhook/chatgpt?client_id=${c.id}`;
     let photosCount = 0;
     try { photosCount = JSON.parse(c.gallery_urls || '[]').length; } catch (_) {}
 
@@ -2013,6 +2056,7 @@ function renderDashboardHTML(clients, recentReviews, recentLeads, recentAppointm
             <a href="/oauth/google/connect?client_id=${c.id}" class="btn-sm btn-ghost">${isConnected ? '↻ Réauth GBP' : '🔗 Connecter Google GBP'}</a>
             ${isConnected ? `<a href="/oauth/google/select-location?client_id=${c.id}" class="btn-sm btn-ghost">Changer fiche</a>` : ''}
             <a href="https://chatgpt.com/business-hub/" target="_blank" rel="noopener noreferrer" class="btn-sm btn-ghost">Ouvrir ChatGPT Business Hub</a>
+            <button type="button" class="btn-sm btn-ghost" onclick="copyWebhook('${escapeHtml(chatgptWebhookUrl)}', this)">Copier le webhook ChatGPT</button>
             ${validChatgptProfileUrl(c.chatgpt_profile_url) ? `<a href="${escapeHtml(c.chatgpt_profile_url)}" target="_blank" rel="noopener noreferrer" class="btn-sm btn-ghost">Ouvrir la fiche ChatGPT</a>` : ''}
           </div>
         </td>
@@ -2091,6 +2135,7 @@ function renderDashboardHTML(clients, recentReviews, recentLeads, recentAppointm
         </td>
         <td>
           <strong style="color:var(--gold);">${escapeHtml(l.business_name || 'Revue générale')}</strong>
+          ${l.source_channel === 'chatgpt' ? '<span class="pill pill-ok">ChatGPT</span>' : ''}
           <div style="font-size:.76rem;color:var(--text-secondary);max-width:320px;">${escapeHtml(l.nyxia_sms_text || l.prospect_message || '')}</div>
         </td>
         <td>
