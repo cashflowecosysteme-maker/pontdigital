@@ -1562,7 +1562,8 @@ async function handleAddClient(request, env) {
   const businessName = (formData.get('business_name') || '').trim();
   const city = (formData.get('city') || '').trim();
   const category = (formData.get('category') || '').trim();
-  if (!businessName || !city || !category) return Response.redirect(new URL('/?msg=error_fields', request.url), 302);
+  if (!businessName) return Response.redirect(new URL('/?msg=error_fields', request.url), 302);
+  const draft = formData.get('save_mode') === 'draft' || !city || !category;
 
   const galleryJson = JSON.stringify((formData.get('gallery_urls') || '').split(',').map(s => s.trim()).filter(Boolean).slice(0, 5));
   const socialJson = buildSocialLinksJson(formData);
@@ -1572,8 +1573,8 @@ async function handleAddClient(request, env) {
       business_name, city, category, services, service_areas, public_address, show_public_address,
       advertorial_text, social_links, phone, client_email,
       google_review_url, booking_calendar_url, booking_notes, heyzine_url, interview_video_url,
-      cover_photo_url, gallery_urls
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      cover_photo_url, gallery_urls, status
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).bind(
     businessName, city, category,
     (formData.get('services') || '').trim(),
@@ -1590,10 +1591,10 @@ async function handleAddClient(request, env) {
     (formData.get('heyzine_url') || '').trim(),
     (formData.get('interview_video_url') || '').trim(),
     (formData.get('cover_photo_url') || '').trim(),
-    galleryJson
+    galleryJson, draft ? 'draft' : 'active'
   ).run();
 
-  return Response.redirect(new URL('/?msg=client_added', request.url), 302);
+  return Response.redirect(new URL(draft ? '/?msg=client_draft_saved' : '/?msg=client_added', request.url), 302);
 }
 
 async function handleUpdateClientFull(request, env) {
@@ -1602,18 +1603,18 @@ async function handleUpdateClientFull(request, env) {
   const businessName = (formData.get('business_name') || '').trim();
   const city = (formData.get('city') || '').trim();
   const category = (formData.get('category') || '').trim();
-  if (!clientId || !businessName || !city || !category) return Response.redirect(new URL('/?msg=error_fields', request.url), 302);
+  if (!clientId || !businessName) return Response.redirect(new URL('/?msg=error_fields', request.url), 302);
 
   const galleryJson = JSON.stringify((formData.get('gallery_urls') || '').split(',').map(s => s.trim()).filter(Boolean).slice(0, 5));
   const socialJson = buildSocialLinksJson(formData);
 
-  await env.DB.prepare(`
+  const update = await env.DB.prepare(`
     UPDATE clients SET business_name = ?, city = ?, category = ?, services = ?, service_areas = ?,
       public_address = ?, show_public_address = ?, advertorial_text = ?, social_links = ?, phone = ?,
       client_email = ?, google_review_url = ?,
       booking_calendar_url = ?, booking_notes = ?, heyzine_url = ?, interview_video_url = ?,
       cover_photo_url = ?, gallery_urls = ?
-    WHERE id = ?
+    WHERE id = ? AND (status = 'draft' OR ? = 1)
   `).bind(
     businessName, city, category,
     (formData.get('services') || '').trim(),
@@ -1630,8 +1631,10 @@ async function handleUpdateClientFull(request, env) {
     (formData.get('heyzine_url') || '').trim(),
     (formData.get('interview_video_url') || '').trim(),
     (formData.get('cover_photo_url') || '').trim(),
-    galleryJson, clientId
+    galleryJson, clientId, city && category ? 1 : 0
   ).run();
+
+  if (!update.meta?.changes) return Response.redirect(new URL('/?msg=client_public_fields_missing', request.url), 302);
 
   return Response.redirect(new URL('/?msg=media_updated', request.url), 302);
 }
@@ -1642,6 +1645,15 @@ async function handleToggleClientStatus(request, env) {
   if (id) {
     const client = await env.DB.prepare('SELECT status FROM clients WHERE id = ?').bind(id).first();
     if (client) {
+      if (client.status === 'draft') {
+        const result = await env.DB.prepare(`
+          UPDATE clients SET status = 'active'
+          WHERE id = ? AND status = 'draft'
+            AND trim(business_name) <> '' AND trim(city) <> '' AND trim(category) <> ''
+        `).bind(id).run();
+        const msg = result.meta?.changes ? 'client_status_updated' : 'client_public_fields_missing';
+        return Response.redirect(new URL('/?msg=' + msg, request.url), 302);
+      }
       const nextStatus = (client.status === 'inactive') ? 'active' : 'inactive';
       await env.DB.prepare('UPDATE clients SET status = ? WHERE id = ?').bind(nextStatus, id).run();
     }
@@ -1857,6 +1869,8 @@ function renderDashboardHTML(clients, recentReviews, recentLeads, recentAppointm
   const alerts = {
     pwd_updated: 'Mot de passe interne mis à jour avec succès dans D1.',
     error_pwd: 'Erreur : le mot de passe doit contenir au moins 8 caractères et être identique.',
+    client_draft_saved: 'Brouillon enregistré dans le SuperAdmin.',
+    client_public_fields_missing: 'Pour une fiche publiée, indique le nom, la ville et la catégorie.',
     client_added: 'Entrepreneur ajouté à la base D1 Pont Digital.',
     media_updated: 'Fiche entrepreneur, Agenda Workspace & Médias mis à jour !',
     client_deleted: 'Fiche entrepreneur supprimée.',
@@ -1914,7 +1928,8 @@ function renderDashboardHTML(clients, recentReviews, recentLeads, recentAppointm
     let photosCount = 0;
     try { photosCount = JSON.parse(c.gallery_urls || '[]').length; } catch (_) {}
 
-    const isActive = (c.status !== 'inactive');
+    const isDraft = c.status === 'draft';
+    const isActive = !isDraft && c.status !== 'inactive';
     const ratingBadge = (c.google_rating !== null && c.google_rating !== undefined)
       ? `<span style="color:var(--gold);font-weight:600;">★ ${Number(c.google_rating).toFixed(1)} (${c.google_review_count ?? c.review_count ?? 0} avis)</span>`
       : `${c.review_count || 0} avis`;
@@ -1949,7 +1964,7 @@ function renderDashboardHTML(clients, recentReviews, recentLeads, recentAppointm
             <div>
               <strong style="color:#fff;font-size:.96rem;">${escapeHtml(c.business_name)}</strong>
               <span style="color:var(--gold);font-size:.75rem;">#${c.id}</span>
-              ${isActive
+              ${isDraft ? '<span class="pill pill-warn">Brouillon</span>' : isActive
                 ? `<span class="pill pill-ok" style="margin-left:6px;padding:2px 8px;font-size:.68rem;">Active</span>`
                 : `<span class="pill pill-muted" style="margin-left:6px;padding:2px 8px;font-size:.68rem;">Désactivée</span>`}
               <div style="font-size:.8rem;color:var(--text-muted);">${escapeHtml(c.category)} • ${escapeHtml(c.city)}</div>
@@ -1983,7 +1998,7 @@ function renderDashboardHTML(clients, recentReviews, recentLeads, recentAppointm
             <button type="button" class="btn-sm btn-ghost" onclick='openEditModal(${JSON.stringify(safeClientForEdit).replace(/'/g, "&#39;")})'>✏️ Modifier</button>
             <form method="POST" action="/api/clients/toggle-status" style="margin:0;">
               <input type="hidden" name="id" value="${c.id}">
-              <button type="submit" class="btn-sm btn-ghost">${isActive ? '⏸️ Désactiver' : '▶️ Activer'}</button>
+              <button type="submit" class="btn-sm btn-ghost"> ${isDraft ? 'Publier la fiche' : isActive ? '⏸️ Désactiver' : '▶️ Activer'}</button>
             </form>
             ${isConnected ? `
               <form method="POST" action="/api/google/sync-reviews" style="margin:0;">
@@ -2094,7 +2109,7 @@ function renderDashboardHTML(clients, recentReviews, recentLeads, recentAppointm
     ${!officeNotice && msg && alerts[msg] ? `<div class="alert-banner">${alerts[msg]}</div>` : ''}
 
     <div class="kpi-grid">
-      <div class="kpi-box"><div class="kpi-label">Entrepreneurs actifs</div><div class="kpi-val">${clients.length}</div></div>
+      <div class="kpi-box"><div class="kpi-label">Entrepreneurs actifs</div><div class="kpi-val">${clients.filter(client => client.status !== 'draft' && client.status !== 'inactive').length}</div></div>
       <div class="kpi-box"><div class="kpi-label">Agendas Setting prêts</div><div class="kpi-val">${bookingReadyCount} / ${clients.length}</div></div>
       <div class="kpi-box"><div class="kpi-label">Fiches Google connectées</div><div class="kpi-val">${gbpConnectedCount} / ${clients.length}</div></div>
       <div class="kpi-box"><div class="kpi-label">Avis en attente de réponse</div><div class="kpi-val">${pendingReviewsCount}</div></div>
@@ -2121,8 +2136,8 @@ function renderDashboardHTML(clients, recentReviews, recentLeads, recentAppointm
         <form method="POST" action="/api/clients">
           <div class="field-grid">
             <div class="field"><label>Nom de l'entreprise *</label><input name="business_name" required placeholder="Ex: Salon Éclat"></div>
-            <div class="field"><label>Ville principale *</label><input name="city" required placeholder="Ex: Saint-Calixte"></div>
-            <div class="field"><label>Catégorie principale *</label><input name="category" required placeholder="Ex: Salon de coiffure"></div>
+            <div class="field"><label>Ville principale</label><input name="city" placeholder="Ex: Saint-Calixte"></div>
+            <div class="field"><label>Catégorie principale</label><input name="category" placeholder="Ex: Salon de coiffure"></div>
             <div class="field"><label>Services précis (moteur de recherche)</label><input name="services" placeholder="Ex: coloration, mèches, coupe homme, coiffure de mariage"></div>
             <div class="field"><label>Territoire desservi (villes / région)</label><input name="service_areas" placeholder="Ex: Saint-Calixte, Sainte-Julienne, Rawdon, Lanaudière"></div>
             <div class="field"><label>Téléphone public</label><input name="phone" placeholder="514-000-0000"></div>
@@ -2151,7 +2166,7 @@ function renderDashboardHTML(clients, recentReviews, recentLeads, recentAppointm
             <label>Texte narratif du publireportage (fiche commerciale publique)</label>
             <textarea name="advertorial_text" rows="3" placeholder="Histoire de l'entrepreneur, mission, approche humaine et ce qui le distingue dans sa région..."></textarea>
           </div>
-          <div style="margin-top:16px;"><button type="submit" class="btn-primary">Enregistrer l'entrepreneur</button></div>
+          <div style="margin-top:16px;"><button type="submit" class="btn-primary">Enregistrer l'entrepreneur</button> <button type="submit" name="save_mode" value="draft" class="btn-ghost">Enregistrer en brouillon</button></div>
         </form>
       </section>
 
@@ -2462,8 +2477,8 @@ function renderDashboardHTML(clients, recentReviews, recentLeads, recentAppointm
         <input type="hidden" name="client_id" id="edit-client_id">
         <div class="field-grid">
           <div class="field"><label>Entreprise *</label><input name="business_name" id="edit-business_name" required></div>
-          <div class="field"><label>Ville principale *</label><input name="city" id="edit-city" required></div>
-          <div class="field"><label>Catégorie principale *</label><input name="category" id="edit-category" required></div>
+          <div class="field"><label>Ville principale</label><input name="city" id="edit-city"></div>
+          <div class="field"><label>Catégorie principale</label><input name="category" id="edit-category"></div>
           <div class="field"><label>Services précis (recherche)</label><input name="services" id="edit-services"></div>
           <div class="field"><label>Territoire desservi</label><input name="service_areas" id="edit-service_areas"></div>
           <div class="field"><label>Téléphone</label><input name="phone" id="edit-phone"></div>
