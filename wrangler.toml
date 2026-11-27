@@ -1,5 +1,6 @@
 name = "pontdigital"
 main = "worker.js"
+keep_vars = true
 compatibility_date = "2026-11-01"
 
 routes = [
@@ -19,3 +20,6 @@ database_id = "6686e683-69d3-4044-9566-309480bc949e"
 
 [triggers]
 crons = ["*/15 * * * *"]
+
+[vars]
+TWILIO_FROM_NUMBER = "+18734464309"
