@@ -1,3 +1,4 @@
+import { renderAuditPage, handleNyxiaAudit } from './audit-visibilite.js';
 import publicSiteWorker from './pontdigital/worker.js';
 import {saveMagazineIssue, toggleMagazineIssue, renderMagazinePanel} from './magazine-admin.js';
 import {
@@ -112,6 +113,14 @@ export default {
         return new Response(renderLoginHTML(), {
           headers: { 'Content-Type': 'text/html; charset=utf-8' }
         });
+      }
+
+      // Audit avant-vente Google + IA — page indépendante, accès Super Admin seulement.
+      if (path === '/audit-visibilite' && request.method === 'GET') {
+        return new Response(renderAuditPage(), { headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' } });
+      }
+      if (path === '/api/audit/nyxia' && request.method === 'POST') {
+        return handleNyxiaAudit(request, env);
       }
 
       // Démarrage & Sélection de fiche OAuth Google
@@ -2047,6 +2056,7 @@ function renderDashboardHTML(clients, recentReviews, recentLeads, recentAppointm
       <button type="button" class="tab-btn" data-tab="gbp" onclick="switchTab('gbp')">✨ Studio Google &amp; NyXia (${pendingReviewsCount})</button>
       <button type="button" class="tab-btn" data-tab="settings" onclick="switchTab('settings')">⚙️ Tests SMS &amp; Sécurité</button>
       <button type="button" class="tab-btn" data-tab="magazine" onclick="switchTab('magazine')">📖 Revue &amp; Archives</button>
+      <a class="tab-btn" href="/audit-visibilite" style="text-decoration:none;display:inline-flex;align-items:center;">🔎 Audit Google + IA</a>
     </nav>
 
     <!-- ONGLET 1 : ENTREPRENEURS & AGENDAS -->
