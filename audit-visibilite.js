@@ -28,6 +28,25 @@ export function renderAuditPage() {
 </style><div class="audit-workspace">
 <div class="intro admin-card"><h1 class="display">Audit de visibilité Google + ChatGPT</h1><p>Prépare l'audit du commerçant avant son rendez-vous Zoom. NyXia rédige un rapport à partir de <strong>tes observations vérifiées</strong>. Le rapport reste chez toi : tu décides si, quand et à quel Closer l'envoyer.</p><p class="warn">Ni Google Maps ni ChatGPT ne fournissent ici de classement automatique. Ouvre les recherches, vérifie les résultats à l'écran, puis consigne uniquement ce que tu constates. Aucun rang ou avis n'est inventé.</p></div>
 <section class="admin-card"><h2 class="display">1. Entreprise à auditer — cliente ou prospect</h2><div class="grid"><div class="field"><label for="company">Nom du commerce *</label><input id="company" maxlength="150" required placeholder="Salon Exemple"></div><div class="field"><label for="sector">Métier ou service principal *</label><input id="sector" maxlength="160" required placeholder="Coiffure, plomberie, esthétique..."></div><div class="field"><label for="city">Ville / territoire *</label><input id="city" maxlength="150" required placeholder="Laval"></div><div class="field"><label for="date">Date de l'audit</label><input id="date" type="date"></div><div class="field wide"><label for="website">Site ou fiche de l'entreprise (facultatif)</label><input id="website" placeholder="https://..."></div></div><p class="help">Aucune création de client ni modification de la fiche Google : l'audit peut être réalisé avant la signature.</p><div class="actions"><button type="button" class="btn-ghost" id="openGoogle">Ouvrir une recherche Google Maps ↗</button><button type="button" class="btn-ghost" id="openChatgpt">Ouvrir ChatGPT ↗</button></div></section>
+<section class="admin-card">
+  <h2 class="display">Accès aux fiches de l’entreprise</h2>
+  <div class="grid">
+    <div class="field">
+      <label for="audit-google-url">Lien direct de la fiche Google</label>
+      <input id="audit-google-url" type="url" placeholder="https://maps.google.com/…">
+      <div class="actions">
+        <button type="button" class="btn-ghost" id="audit-google-direct">Ouvrir la fiche Google</button>
+        <button type="button" class="btn-ghost" id="audit-google-find">Trouver par nom et ville</button>
+      </div>
+    </div>
+    <div class="field">
+      <label for="audit-gpt-url">Lien direct de la fiche GPT</label>
+      <input id="audit-gpt-url" type="url" placeholder="https://chatgpt.com/…">
+      <div class="actions"><button type="button" class="btn-ghost" id="audit-gpt-direct">Ouvrir la fiche GPT</button></div>
+    </div>
+  </div>
+  <p id="audit-links-status" role="status"></p>
+</section>
 <section class="admin-card"><h2 class="display">2. Google : observations réelles</h2><div class="grid"><div class="field wide"><label for="googleQuery">Requête et contexte testés</label><input id="googleQuery" placeholder="Ex. coiffeuse Laval — recherche depuis Laval, date..." ></div><div class="field"><label for="googlePresence">Présence observée</label><select id="googlePresence"><option value="Non vérifiée">Non vérifiée</option><option>Visible dans les résultats observés</option><option>Non visible dans les résultats observés</option><option>Position variable selon la recherche</option></select></div><div class="field"><label for="reviews">Avis Google : constats vérifiés</label><input id="reviews" placeholder="Ex. 18 avis, note 4,6, dernière réponse..."></div><div class="field wide"><label for="googleNotes">Constats Google : services, horaires, photos, avis, concurrence et réservation</label><textarea id="googleNotes" placeholder="Décris ce que tu as réellement vu. Ne présume pas une position stable sur Google."></textarea></div><div class="field wide"><label for="googleSources">Lien(s) et preuves des recherches</label><textarea id="googleSources" placeholder="Liens de fiche Google ou URL de recherches vérifiées"></textarea></div></div></section>
 <section class="admin-card"><h2 class="display">3. ChatGPT : observations réelles</h2><div class="grid"><div class="field wide"><label for="aiQuestion">Question réellement posée à ChatGPT</label><textarea id="aiQuestion" placeholder="Ex. Quels salons proposent des colorations près de Laval ?"></textarea></div><div class="field"><label for="aiPresence">Mention observée</label><select id="aiPresence"><option>Non vérifiée</option><option>Entreprise mentionnée dans la réponse testée</option><option>Entreprise non mentionnée dans la réponse testée</option><option>Réponse ambiguë / informations incorrectes</option></select></div><div class="field wide"><label for="aiNotes">Constats ChatGPT et sources citées</label><textarea id="aiNotes" placeholder="Copie ou résume uniquement les éléments réellement observés, y compris les sources citées."></textarea></div><div class="field wide"><label for="aiSources">Liens de sources vérifiables</label><textarea id="aiSources" placeholder="Liens des sources citées par ChatGPT (si disponibles)"></textarea></div></div><p class="help">La visibilité IA varie selon les questions, les réponses et le contexte. Aucun résultat d'un test isolé ne constitue une position garantie.</p></section>
 <section class="admin-card"><h2 class="display">4. Conversion et rendez-vous</h2><div class="grid"><div class="field wide"><label for="bookingNotes">Que peut faire un internaute aujourd'hui ?</label><textarea id="bookingNotes" placeholder="Bouton Réserver, téléphone, formulaire, délais de réponse observés..."></textarea></div><div class="field wide"><label for="questions">Questions utiles que le commerçant devrait aider les clients à résoudre</label><textarea id="questions" placeholder="Ex. Qui est admissible au service ? Comment se déroule une première rencontre ?"></textarea></div><div class="field wide"><label for="priorities">Priorités envisagées par Pont Digital, après validation humaine</label><textarea id="priorities" placeholder="Améliorer les informations Google, répondre aux avis, clarifier les services, faciliter la prise de rendez-vous..."></textarea></div></div></section>
@@ -36,6 +55,44 @@ export function renderAuditPage() {
 </div><script>
 (()=>{'use strict';const $=id=>document.getElementById(id);$('date').value=new Date().toLocaleDateString('en-CA');function get(){const out={};for(const id of ['company','sector','city','date','website','googleQuery','googlePresence','reviews','googleNotes','googleSources','aiQuestion','aiPresence','aiNotes','aiSources','bookingNotes','questions','priorities'])out[id]=$(id).value.trim();return out}function status(t){$('status').textContent=t}function valid(x){if(!x.company||!x.sector||!x.city){status('Renseigne au minimum le nom du commerce, son métier et sa ville.');return false}return true}function basic(x){return 'PONT DIGITAL — AUDIT DE VISIBILITÉ GOOGLE + IA\\nDate : '+x.date+'\\nCommerce : '+x.company+'\\nMétier : '+x.sector+'\\nVille : '+x.city+'\\n\\n1. GOOGLE — RECHERCHES VÉRIFIÉES\\nRequête : '+x.googleQuery+'\\nPrésence : '+x.googlePresence+'\\nAvis : '+x.reviews+'\\nObservations : '+x.googleNotes+'\\nSources : '+x.googleSources+'\\n\\n2. CHATGPT — RECHERCHES VÉRIFIÉES\\nQuestion : '+x.aiQuestion+'\\nRésultat : '+x.aiPresence+'\\nObservations : '+x.aiNotes+'\\nSources : '+x.aiSources+'\\n\\n3. CONVERSION ET RENDEZ-VOUS\\n'+x.bookingNotes+'\\n\\nQUESTIONS DE PROSPECTS\\n'+x.questions+'\\n\\nPISTES D’AMÉLIORATION À VALIDER (Google + IA + rendez-vous)\\n'+x.priorities+'\\n\\nLes résultats décrivent des observations ponctuelles et ne garantissent aucun classement ni rendez-vous.'}
 $('openGoogle').onclick=()=>{let x=get();if(!valid(x))return;window.open('https://www.google.com/maps/search/?api=1&query='+encodeURIComponent(x.sector+' '+x.city),'_blank','noopener,noreferrer')};$('openChatgpt').onclick=()=>window.open('https://chatgpt.com/','_blank','noopener,noreferrer');$('generate').onclick=async()=>{const x=get();if(!valid(x))return;const b=$('generate');b.disabled=true;status('Préparation du rapport NyXia...');try{const r=await fetch('/api/audit/nyxia',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(x)});const d=await r.json();if(!r.ok)throw Error(d.error||'Erreur du service');$('report').textContent=d.report;status('Rapport préparé. Relis les faits avant envoi au Closer.')}catch(e){status(e.message+' — synthèse factuelle disponible sans IA.');$('report').textContent=basic(x)}finally{b.disabled=false}};$('copy').onclick=async()=>{const r=$('report').innerText.trim();if(!r)return status('Prépare d’abord le rapport.');try{await navigator.clipboard.writeText(r);status('Rapport copié.')}catch(e){status('Copie indisponible dans ce navigateur : sélectionne le rapport.')}};$('print').onclick=()=>{if(!$('report').innerText.trim())return status('Prépare d’abord le rapport.');window.print()};$('email').onclick=()=>{const x=get();const r=$('report').innerText.trim();if(!r)return status('Prépare d’abord le rapport.');const subject='Pont Digital — Audit préparatoire : '+x.company+' — '+x.city;const body=r.length>9500?r.slice(0,9500)+'\\n\\n[Rapport tronqué : utilise le PDF pour transmettre le document complet.]':r;window.location.href='mailto:?subject='+encodeURIComponent(subject)+'&body='+encodeURIComponent(body);status('Ton logiciel de courriel doit s’ouvrir. Aucun courriel n’a été envoyé automatiquement.')}})();
+
+(() => {
+  const field = id => document.getElementById(id);
+  const status = field('audit-links-status');
+  function openLink(id, label) {
+    status.textContent = '';
+    const input = field(id);
+    const value = input.value.trim();
+    if (!value) {
+      status.textContent = 'Lien de la fiche ' + label + ' à renseigner.';
+      input.focus();
+      return;
+    }
+    let url;
+    try { url = new URL(value); } catch {}
+    if (url?.protocol !== 'https:' || url.username || url.password) {
+      status.textContent = 'Entre un lien HTTPS valide pour cette fiche.';
+      input.focus();
+      return;
+    }
+    window.open(url.href, '_blank', 'noopener,noreferrer');
+  }
+
+  field('audit-google-direct').onclick = () => openLink('audit-google-url', 'Google');
+  field('audit-gpt-direct').onclick = () => openLink('audit-gpt-url', 'GPT');
+  field('audit-google-find').onclick = () => {
+    status.textContent = '';
+    const company = field('company').value.trim();
+    const city = field('city').value.trim();
+    if (!company || !city) {
+      status.textContent = 'Indique le nom du commerce et sa ville.';
+      field(company ? 'city' : 'company').focus();
+      return;
+    }
+    const url = 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(company + ' ' + city);
+    window.open(url, '_blank', 'noopener,noreferrer');
+  };
+})();
 </script>`;
 }
 export async function handleNyxiaAudit(request, env) {
