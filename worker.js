@@ -184,6 +184,9 @@ export default {
       }
 
       // Gestion des entrepreneurs & sécurité équipe
+      if (path === '/api/office-alerts' && request.method === 'POST') {
+        return handleOfficeAlertSettings(request, env);
+      }
       if (path === '/api/change-password' && request.method === 'POST') {
         return handleChangePassword(request, env);
       }
@@ -240,7 +243,7 @@ export default {
       `).all();
 
       return new Response(
-        renderDashboardHTML(clients, recentReviews, recentLeads, recentAppointments, url.searchParams.get('msg'), url.origin, magazineIssues),
+        renderDashboardHTML(clients, recentReviews, recentLeads, recentAppointments, url.searchParams.get('msg'), url.origin, magazineIssues, await officeAlertSettings(env)),
         { headers: { 'Content-Type': 'text/html; charset=utf-8' } }
       );
     } catch (err) {
@@ -528,11 +531,8 @@ async function handleBookingWebhook(request, env) {
     combinedNotes, gcalUrl
   ).run();
 
-  const setterTarget = client.assigned_setter_phone || env.AGENCY_ALERT_PHONE;
-  if (setterTarget) {
-    const alertMsg = `RDV À QUALIFIER (${client.business_name}) : ${prospectName} (${prospectPhone || prospectEmail || 'sans coord.'}) — ${appointmentDatetime.replace('T', ' ')} | ${combinedNotes.slice(0, 120)}`;
-    await sendTwilioSms(env, setterTarget, alertMsg);
-  }
+  const alertMsg = `RDV À QUALIFIER (${client.business_name}) : ${prospectName} (${prospectPhone || prospectEmail || 'sans coord.'}) — ${appointmentDatetime.replace('T', ' ')} | ${combinedNotes.slice(0, 120)}`;
+  await sendOfficeSms(env, alertMsg);
 
   return jsonResponse({ ok: true, action: 'created', appointment_id: ins.meta?.last_row_id || null });
 }
@@ -677,7 +677,7 @@ async function handleTwilioIncomingSms(request, env) {
   // Vérification prioritaire d'une réponse OUI ou ANNULER sur un rendez-vous
   if (fromDigits.length >= 7) {
     const { results: appts } = await env.DB.prepare(`
-      SELECT a.*, c.business_name, c.assigned_setter_phone, c.booking_calendar_url
+      SELECT a.*, c.business_name, c.booking_calendar_url
       FROM appointments a
       JOIN clients c ON c.id = a.client_id
       WHERE a.status IN ('pending_qualification', 'confirmed', 'reschedule_requested')
@@ -698,14 +698,10 @@ async function handleTwilioIncomingSms(request, env) {
 
     if (matchingAppt && /^(ANNULER|CANCEL|REPORTER|CHANGER)$/i.test(normalizedReply)) {
       await env.DB.prepare(`UPDATE appointments SET status = 'reschedule_requested' WHERE id = ?`).bind(matchingAppt.id).run();
-      const setterTarget = matchingAppt.assigned_setter_phone || env.AGENCY_ALERT_PHONE;
-      if (setterTarget) {
-        await sendTwilioSms(
-          env,
-          setterTarget,
-          `À REPLANIFIER (${matchingAppt.business_name}) : ${matchingAppt.prospect_name} (${fromPhone}) a demandé d'annuler/reporter le RDV du ${matchingAppt.appointment_datetime.replace('T', ' ')}.`
-        );
-      }
+      await sendOfficeSms(
+        env,
+        `À REPLANIFIER (${matchingAppt.business_name}) : ${matchingAppt.prospect_name} (${fromPhone}) a demandé d'annuler/reporter le RDV du ${matchingAppt.appointment_datetime.replace('T', ' ')}.`
+      );
       const cancelMsg = matchingAppt.booking_calendar_url
         ? `C'est noté pour ${matchingAppt.business_name}. Voici le lien pour choisir un autre moment : ${matchingAppt.booking_calendar_url} — notre équipe vous contactera aussi au besoin.`
         : `C'est bien noté pour ${matchingAppt.business_name}. Notre équipe va vous contacter sous peu pour replanifier votre moment.`;
@@ -724,15 +720,13 @@ async function handleTwilioIncomingSms(request, env) {
     VALUES (?, ?, 'outbound', ?, 'nyxia')
   `).bind(client ? client.id : null, fromPhone, nyxiaReply).run();
 
-  // Transfert immédiat au Setter si demande humaine, devis ou urgence
-  const needsHumanSetter = /(prix|tarif|coût|cout|soumission|devis|urgent|urgence|parler|appeler|humain|disponibilité|place|rendez-vous|rdv)/i.test(bodyText);
-  const setterPhone = client?.assigned_setter_phone || env.AGENCY_ALERT_PHONE;
-  if (needsHumanSetter && setterPhone) {
+  // Alerte au bureau si demande humaine, devis ou urgence
+  const needsOfficeAlert = /(prix|tarif|coût|cout|soumission|devis|urgent|urgence|parler|appeler|humain|disponibilité|place|rendez-vous|rdv)/i.test(bodyText);
+  if (needsOfficeAlert) {
     const bizLabel = client ? `${client.business_name} (${client.city})` : 'Pont Digital';
-    await sendTwilioSms(
+    await sendOfficeSms(
       env,
-      setterPhone,
-      `PRISE EN CHARGE SETTER (${bizLabel}) — Prospect ${fromPhone} : "${bodyText.slice(0, 140)}"`
+      `ALERTE BUREAU (${bizLabel}) — Prospect ${fromPhone} : "${bodyText.slice(0, 140)}"`
     );
   }
 
@@ -792,7 +786,7 @@ async function generateNyxiaSmsReply({ env, client, prospectPhone, incomingMessa
 async function processAppointmentsCron(env) {
   const now = new Date();
   const { results: rows } = await env.DB.prepare(`
-    SELECT a.*, c.business_name, c.city, c.assigned_setter_phone, c.google_review_url
+    SELECT a.*, c.business_name, c.city, c.google_review_url
     FROM appointments a
     JOIN clients c ON c.id = a.client_id
     WHERE a.status != 'cancelled' AND a.prospect_phone IS NOT NULL AND a.prospect_phone != ''
@@ -1007,7 +1001,7 @@ async function generateNyxiaReviewReply({ env, businessName, city, category, rev
 }
 
 // ============================================================================
-// WEBHOOK HEYZINE PRO -> NYXIA -> SMS SETTER (NUMÉRO CENTRAL TWILIO)
+// WEBHOOK HEYZINE PRO -> NYXIA -> SMS AU BUREAU
 // ============================================================================
 
 async function handleHeyzineWebhook(request, env) {
@@ -1070,8 +1064,8 @@ async function handleTestNyxiaSmsRoute(request, env) {
   const client = await env.DB.prepare('SELECT * FROM clients WHERE id = ?').bind(clientId).first();
   if (!client) return Response.redirect(new URL('/?msg=error_fields', request.url), 302);
 
-  await processLeadWithNyxiaAndSms({ env, client, prospectName, prospectContact, prospectMessage, sourceUrl: client.heyzine_url || 'Test SuperAdmin' });
-  return Response.redirect(new URL('/?msg=lead_processed', request.url), 302);
+  const result = await processLeadWithNyxiaAndSms({ env, client, prospectName, prospectContact, prospectMessage, sourceUrl: client.heyzine_url || 'Test SuperAdmin' });
+  return Response.redirect(new URL('/?msg=sms_test_' + result.sms_status, request.url), 302);
 }
 
 async function handleUpdateLeadStatus(request, env) {
@@ -1087,11 +1081,7 @@ async function handleUpdateLeadStatus(request, env) {
 async function processLeadWithNyxiaAndSms({ env, client, prospectName, prospectContact, prospectMessage, sourceUrl }) {
   const businessName = client ? `${client.business_name} (${client.city})` : 'Partenaire Pont Digital';
   const smsText = await generateNyxiaSmsAlert({ env, businessName, prospectName, prospectContact, prospectMessage });
-  const targetPhone = client?.assigned_setter_phone || env.AGENCY_ALERT_PHONE;
-  let smsStatus = 'agency_phone_missing';
-  if (targetPhone) {
-    smsStatus = await sendTwilioSms(env, targetPhone, smsText);
-  }
+  const smsStatus = await sendOfficeSms(env, smsText);
 
   await env.DB.prepare(`
     INSERT INTO heyzine_leads (client_id, prospect_name, prospect_contact, prospect_message, source_url, nyxia_sms_text, sms_status, handling_status)
@@ -1102,7 +1092,7 @@ async function processLeadWithNyxiaAndSms({ env, client, prospectName, prospectC
 }
 
 async function generateNyxiaSmsAlert({ env, businessName, prospectName, prospectContact, prospectMessage }) {
-  const fallbackSms = `ALERTE PONT DIGITAL (NyXia) — Lead Setter pour ${businessName} : ${prospectName} (${prospectContact}) -> "${prospectMessage.slice(0, 100)}"`;
+  const fallbackSms = `ALERTE PONT DIGITAL (NyXia) — Nouvelle demande pour ${businessName} : ${prospectName} (${prospectContact}) -> "${prospectMessage.slice(0, 100)}"`;
   if (!env.OPENROUTER_API_KEY) return fallbackSms;
   const model = env.OPENROUTER_MODEL || 'google/gemini-2.5-flash';
 
@@ -1122,7 +1112,7 @@ async function generateNyxiaSmsAlert({ env, businessName, prospectName, prospect
         messages: [
           {
             role: 'system',
-            content: 'Tu es NyXia, assistante de l’agence Pont Digital. Rédige une alerte SMS interne ultra-rapide destinée aux Setters pour les prévenir d’un nouveau prospect à qualifier : maximum 280 caractères, français québécois clair, aucun hashtag, mentionne clairement le client Pont Digital concerné, le nom du prospect, ses coordonnées et sa demande.'
+            content: 'Tu es NyXia, assistante de l’agence Pont Digital. Rédige une alerte SMS interne ultra-rapide destinée au bureau pour les prévenir d’un nouveau prospect à qualifier : maximum 280 caractères, français québécois clair, aucun hashtag, mentionne clairement le client Pont Digital concerné, le nom du prospect, ses coordonnées et sa demande.'
           },
           {
             role: 'user',
@@ -1136,6 +1126,53 @@ async function generateNyxiaSmsAlert({ env, businessName, prospectName, prospect
   } catch (_) {
     return fallbackSms;
   }
+}
+
+function normalizeOfficePhone(value) {
+  const digits = String(value || '').replace(/[^0-9]/g, '');
+  if (digits.length === 10) return '+1' + digits;
+  return /^1\d{10}$/.test(digits) ? '+' + digits : '';
+}
+
+async function officeAlertSettings(env) {
+  const { results } = await env.DB.prepare(
+    "SELECT key, value FROM admin_settings WHERE key = 'office_alert_recipient' OR key GLOB 'office_alert_number:*' ORDER BY key"
+  ).all();
+  const configured = (env.AGENCY_ALERT_PHONE || '').split(',');
+  const added = results.filter(row => row.key.startsWith('office_alert_number:')).map(row => row.value);
+  const recipients = [...new Set([...configured, ...added].map(normalizeOfficePhone).filter(Boolean))];
+  const saved = results.find(row => row.key === 'office_alert_recipient')?.value;
+  const selected = recipients.includes(saved) ? saved : recipients.length === 1 ? recipients[0] : '';
+  return { recipients, selected };
+}
+
+async function handleOfficeAlertSettings(request, env) {
+  const form = await request.formData();
+  const phone = normalizeOfficePhone(form.get('phone'));
+  const redirect = msg => Response.redirect(new URL('/?msg=' + msg, request.url), 303);
+  if (!phone) return redirect('office_phone_invalid');
+
+  if (form.get('action') === 'add') {
+    await env.DB.prepare('INSERT OR IGNORE INTO admin_settings (key, value) VALUES (?, ?)')
+      .bind('office_alert_number:' + phone, phone).run();
+    return redirect('office_phone_added');
+  }
+
+  const { recipients } = await officeAlertSettings(env);
+  if (form.get('action') !== 'select' || !recipients.includes(phone)) return redirect('office_phone_invalid');
+
+  await env.DB.prepare(`
+    INSERT INTO admin_settings (key, value) VALUES ('office_alert_recipient', ?)
+    ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = CURRENT_TIMESTAMP
+  `).bind(phone).run();
+  return redirect('office_phone_selected');
+}
+
+async function sendOfficeSms(env, bodyText) {
+  const { recipients, selected } = await officeAlertSettings(env);
+  if (!recipients.length) return 'agency_phone_missing';
+  if (!selected) return 'office_phone_unselected';
+  return sendTwilioSms(env, selected, bodyText);
 }
 
 async function sendTwilioSms(env, rawToPhone, bodyText) {
@@ -1542,10 +1579,10 @@ async function handleAddClient(request, env) {
   await env.DB.prepare(`
     INSERT INTO clients (
       business_name, city, category, services, service_areas, public_address, show_public_address,
-      advertorial_text, social_links, phone, client_email, assigned_setter_phone,
+      advertorial_text, social_links, phone, client_email,
       google_review_url, booking_calendar_url, booking_notes, heyzine_url, interview_video_url,
       cover_photo_url, gallery_urls
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).bind(
     businessName, city, category,
     (formData.get('services') || '').trim(),
@@ -1556,7 +1593,6 @@ async function handleAddClient(request, env) {
     socialJson,
     (formData.get('phone') || '').trim(),
     (formData.get('client_email') || '').trim(),
-    (formData.get('assigned_setter_phone') || '').trim(),
     (formData.get('google_review_url') || '').trim(),
     (formData.get('booking_calendar_url') || '').trim(),
     (formData.get('booking_notes') || '').trim(),
@@ -1583,7 +1619,7 @@ async function handleUpdateClientFull(request, env) {
   await env.DB.prepare(`
     UPDATE clients SET business_name = ?, city = ?, category = ?, services = ?, service_areas = ?,
       public_address = ?, show_public_address = ?, advertorial_text = ?, social_links = ?, phone = ?,
-      client_email = ?, assigned_setter_phone = ?, google_review_url = ?,
+      client_email = ?, google_review_url = ?,
       booking_calendar_url = ?, booking_notes = ?, heyzine_url = ?, interview_video_url = ?,
       cover_photo_url = ?, gallery_urls = ?
     WHERE id = ?
@@ -1597,7 +1633,6 @@ async function handleUpdateClientFull(request, env) {
     socialJson,
     (formData.get('phone') || '').trim(),
     (formData.get('client_email') || '').trim(),
-    (formData.get('assigned_setter_phone') || '').trim(),
     (formData.get('google_review_url') || '').trim(),
     (formData.get('booking_calendar_url') || '').trim(),
     (formData.get('booking_notes') || '').trim(),
@@ -1826,7 +1861,7 @@ function renderHoursTableRows() {
   `).join('');
 }
 
-function renderDashboardHTML(clients, recentReviews, recentLeads, recentAppointments, msg, origin, magazineIssues) {
+function renderDashboardHTML(clients, recentReviews, recentLeads, recentAppointments, msg, origin, magazineIssues, officeAlerts) {
   const alerts = {
     pwd_updated: 'Mot de passe interne mis à jour avec succès dans D1.',
     error_pwd: 'Erreur : le mot de passe doit contenir au moins 8 caractères et être identique.',
@@ -1851,7 +1886,15 @@ function renderDashboardHTML(clients, recentReviews, recentLeads, recentAppointm
     special_hours_empty_blocked: '⚠️ Sécurité horaires spéciaux : suppression annulée faute de confirmation explicite.',
     profile_d1_only: 'Services et territoire desservi enregistrés dans D1 pour le répertoire public !',
     google_api_error: 'Erreur de communication avec l’API Google Business Profile.',
-    lead_processed: 'Alerte SMS envoyée par NyXia vers ton cellulaire et lead enregistré.',
+    office_phone_selected: 'Le destinataire des alertes du bureau a été enregistré.',
+    office_phone_added: 'Numéro ajouté à la liste du bureau.',
+    office_phone_invalid: 'Choisis un numéro valide du bureau.',
+    sms_test_office_phone_unselected: 'SMS non envoyé. Sélectionne le destinataire dans Tests SMS & Sécurité.',
+    sms_test_sent: 'Twilio a accepté le SMS de test destiné au bureau. Vérifie sa réception.',
+    sms_test_agency_phone_missing: 'SMS non envoyé. Ajoute un numéro dans Tests SMS & Sécurité.',
+    sms_test_twilio_not_configured: 'SMS non envoyé. La configuration Twilio est incomplète.',
+    sms_test_invalid_phone: 'SMS non envoyé. Le numéro du bureau est invalide.',
+    sms_test_twilio_error: 'Échec d’envoi du SMS de test. Consulte les journaux Twilio.',
     lead_status_updated: 'Statut de suivi du lead mis à jour.',
     rdv_booked: 'Rendez-vous qualifié enregistré ! Clique sur « 📅 Invitation Google Agenda ↗ » dans le journal.',
     rdv_deleted: 'Rendez-vous retiré du journal.',
@@ -1897,7 +1940,6 @@ function renderDashboardHTML(clients, recentReviews, recentLeads, recentAppointm
       social_links: c.social_links || '{}',
       phone: c.phone || '',
       client_email: c.client_email || '',
-      assigned_setter_phone: c.assigned_setter_phone || '',
       google_review_url: c.google_review_url || '',
       booking_calendar_url: c.booking_calendar_url || '',
       heyzine_url: c.heyzine_url || '',
@@ -2089,7 +2131,6 @@ function renderDashboardHTML(clients, recentReviews, recentLeads, recentAppointm
             <div class="field"><label>Territoire desservi (villes / région)</label><input name="service_areas" placeholder="Ex: Saint-Calixte, Sainte-Julienne, Rawdon, Lanaudière"></div>
             <div class="field"><label>Téléphone public</label><input name="phone" placeholder="514-000-0000"></div>
             <div class="field"><label>Courriel vendeur (invitations RDV)</label><input type="email" name="client_email" placeholder="contact@entreprise.ca"></div>
-            <div class="field"><label>Téléphone du Setter assigné (alertes &amp; RDV)</label><input name="assigned_setter_phone" placeholder="+14505550188"></div>
             <div class="field"><label>Lien direct Avis Google (SMS post-RDV)</label><input type="url" name="google_review_url" placeholder="https://g.page/r/.../review"></div>
             <div class="field"><label>Lien Prise de RDV Google Workspace (Setter)</label><input type="url" name="booking_calendar_url" placeholder="https://calendar.app.google/..."></div>
             <div class="field"><label>URL Page Heyzine (#page/X)</label><input type="url" name="heyzine_url" placeholder="https://heyzine.com/flip-book/...#page/1"></div>
@@ -2364,7 +2405,30 @@ function renderDashboardHTML(clients, recentReviews, recentLeads, recentAppointm
     <!-- ONGLET 4 : TESTS SMS & SÉCURITÉ -->
     <div id="panel-settings" class="tab-panel">
       <section class="admin-card">
-        <h2 class="display" style="font-size:1.75rem;color:var(--gold);margin-bottom:14px;">Test Alerte SMS Appointment Setter</h2>
+        <h2 class="display">Destinataire des alertes du bureau</h2>
+        <form method="POST" action="/api/office-alerts">
+          <input type="hidden" name="action" value="select">
+          <div class="field">
+            <label for="office-alert-phone">Numéro qui reçoit les alertes</label>
+            <select id="office-alert-phone" name="phone" required>
+              <option value="">Choisir un numéro</option>
+              ${officeAlerts.recipients.map(phone => `<option value="${escapeHtml(phone)}"${phone === officeAlerts.selected ? ' selected' : ''}>${escapeHtml(phone)}</option>`).join('')}
+            </select>
+          </div>
+          <button class="btn-sm btn-gold" type="submit">Enregistrer le destinataire</button>
+        </form>
+        <form method="POST" action="/api/office-alerts" style="margin-top:1rem;">
+          <input type="hidden" name="action" value="add">
+          <div class="field">
+            <label for="office-new-phone">Nouveau numéro du bureau</label>
+            <input id="office-new-phone" name="phone" type="tel" placeholder="+1 514 555-0100" required>
+          </div>
+          <button class="btn-sm btn-ghost" type="submit">Ajouter à la liste</button>
+        </form>
+      </section>
+
+      <section class="admin-card">
+        <h2 class="display" style="font-size:1.75rem;color:var(--gold);margin-bottom:14px;">Test SMS au bureau</h2>
         <form method="POST" action="/api/test-nyxia-sms">
           <div class="field-grid">
             <div class="field"><label>Simuler un lead pour le client *</label><select name="client_id" required>${allClientOptions}</select></div>
@@ -2373,7 +2437,7 @@ function renderDashboardHTML(clients, recentReviews, recentLeads, recentAppointm
             <div class="field"><label>Message du prospect</label><input name="prospect_message" value="Intéressée par vos services suite à la revue Heyzine !" required></div>
           </div>
           <div style="margin-top:12px;">
-            <button type="submit" class="btn-sm btn-gold" style="padding:10px 18px;">📱 Envoyer un SMS de test vers ton cellulaire</button>
+            <button type="submit" class="btn-sm btn-gold" style="padding:10px 18px;">📱 Envoyer un SMS de test au bureau</button>
           </div>
         </form>
       </section>
@@ -2407,7 +2471,6 @@ function renderDashboardHTML(clients, recentReviews, recentLeads, recentAppointm
           <div class="field"><label>Territoire desservi</label><input name="service_areas" id="edit-service_areas"></div>
           <div class="field"><label>Téléphone</label><input name="phone" id="edit-phone"></div>
           <div class="field"><label>Courriel vendeur (invitations RDV)</label><input type="email" name="client_email" id="edit-client_email"></div>
-          <div class="field"><label>Téléphone du Setter assigné</label><input name="assigned_setter_phone" id="edit-assigned_setter_phone"></div>
           <div class="field"><label>Lien direct Avis Google (SMS post-RDV)</label><input type="url" name="google_review_url" id="edit-google_review_url"></div>
           <div class="field"><label>Lien Agenda Google Workspace</label><input type="url" name="booking_calendar_url" id="edit-booking_calendar_url"></div>
           <div class="field"><label>URL Page Heyzine (#page/X)</label><input type="url" name="heyzine_url" id="edit-heyzine_url"></div>

@@ -51,8 +51,6 @@ function openEditModal(c) {
   document.getElementById('edit-social_youtube').value = socials.youtube || '';
   document.getElementById('edit-phone').value = c.phone || '';
   document.getElementById('edit-client_email').value = c.client_email || '';
-  var setterPhoneEl = document.getElementById('edit-assigned_setter_phone');
-  if (setterPhoneEl) setterPhoneEl.value = c.assigned_setter_phone || '';
   var reviewUrlEl = document.getElementById('edit-google_review_url');
   if (reviewUrlEl) reviewUrlEl.value = c.google_review_url || '';
   document.getElementById('edit-booking_calendar_url').value = c.booking_calendar_url || '';
