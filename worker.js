@@ -1,3 +1,4 @@
+import { renderMonthlyReport } from './rapport-mensuel.js';
 import { renderAuditPage, handleNyxiaAudit } from './audit-visibilite.js';
 import publicSiteWorker from './pontdigital/worker.js';
 import {saveMagazineIssue, toggleMagazineIssue, renderMagazinePanel} from './magazine-admin.js';
@@ -112,6 +113,13 @@ export default {
       if (!isAuthenticated) {
         return new Response(renderLoginHTML(), {
           headers: { 'Content-Type': 'text/html; charset=utf-8' }
+        });
+      }
+
+      if (path === '/rapports-mensuels' && request.method === 'GET') {
+        const report = await renderMonthlyReport(request, env.DB, escapeHtml);
+        return new Response(`<!doctype html><html lang="fr-CA"><head>${renderSharedHead('Rapports mensuels')}</head><body>${report}</body></html>`, {
+          headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' }
         });
       }
 
@@ -303,6 +311,7 @@ async function ensureDatabaseReady(db) {
         star_rating INTEGER,
         comment TEXT,
         reply_comment TEXT,
+        reply_updated_at TEXT,
         review_updated_at TEXT,
         synced_at DATETIME DEFAULT CURRENT_TIMESTAMP
       )
@@ -369,6 +378,7 @@ async function ensureDatabaseReady(db) {
   ]);
 
   const migrations = [
+    'ALTER TABLE google_reviews ADD COLUMN reply_updated_at TEXT',
     'ALTER TABLE clients ADD COLUMN google_account_name TEXT',
     'ALTER TABLE clients ADD COLUMN google_location_name TEXT',
     'ALTER TABLE clients ADD COLUMN google_location_title TEXT',
@@ -946,7 +956,7 @@ async function handleReplyReviewWithNyxiaRoute(request, env) {
     );
     if (!googleReplyRes.ok) return Response.redirect(new URL('/?msg=google_api_error', request.url), 302);
 
-    await env.DB.prepare(`UPDATE google_reviews SET reply_comment = ?, synced_at = CURRENT_TIMESTAMP WHERE review_id = ?`)
+    await env.DB.prepare(`UPDATE google_reviews SET reply_comment = ?, reply_updated_at = CURRENT_TIMESTAMP, synced_at = CURRENT_TIMESTAMP WHERE review_id = ?`)
       .bind(replyText, row.review_id).run();
 
     return Response.redirect(new URL('/?msg=review_replied', request.url), 302);
@@ -1369,10 +1379,15 @@ async function syncReviewsForClient(client, env) {
   const starMap = { ONE: 1, TWO: 2, THREE: 3, FOUR: 4, FIVE: 5 };
   for (const rev of (reviewsData.reviews || [])) {
     await env.DB.prepare(`
-      INSERT INTO google_reviews (review_id, client_id, reviewer_name, star_rating, comment, reply_comment, review_updated_at, synced_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+      INSERT INTO google_reviews (review_id, client_id, reviewer_name, star_rating, comment, reply_comment, reply_updated_at, review_updated_at, synced_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
       ON CONFLICT(review_id) DO UPDATE SET
         star_rating = excluded.star_rating, comment = excluded.comment, reply_comment = excluded.reply_comment,
+        reply_updated_at = CASE
+          WHEN excluded.reply_comment IS NULL THEN NULL
+          WHEN excluded.reply_updated_at IS NOT NULL THEN excluded.reply_updated_at
+          WHEN excluded.reply_comment = google_reviews.reply_comment THEN google_reviews.reply_updated_at
+        END,
         review_updated_at = excluded.review_updated_at, synced_at = CURRENT_TIMESTAMP
     `).bind(
       rev.reviewId || rev.name,
@@ -1381,6 +1396,7 @@ async function syncReviewsForClient(client, env) {
       starMap[rev.starRating] || 5,
       rev.comment || '',
       rev.reviewReply?.comment || null,
+      rev.reviewReply?.updateTime || null,
       rev.updateTime || rev.createTime || new Date().toISOString()
     ).run();
   }
@@ -2057,6 +2073,7 @@ function renderDashboardHTML(clients, recentReviews, recentLeads, recentAppointm
       <button type="button" class="tab-btn" data-tab="settings" onclick="switchTab('settings')">⚙️ Tests SMS &amp; Sécurité</button>
       <button type="button" class="tab-btn" data-tab="magazine" onclick="switchTab('magazine')">📖 Revue &amp; Archives</button>
       <a class="tab-btn" href="/audit-visibilite" style="text-decoration:none;display:inline-flex;align-items:center;">🔎 Audit Google + IA</a>
+      <a class="tab-btn" href="/rapports-mensuels" style="text-decoration:none;display:inline-flex;align-items:center;">Rapports mensuels</a>
     </nav>
 
     <!-- ONGLET 1 : ENTREPRENEURS & AGENDAS -->
