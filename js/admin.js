@@ -19,7 +19,27 @@ function switchTab(tabId) {
   } catch (_) {}
 }
 
+function ouvrirRapportsMensuels() {
+  if (document.getElementById('panel-reports')) {
+    switchTab('reports');
+  } else {
+    window.location.assign('/rapports-mensuels');
+  }
+}
+
 document.addEventListener('DOMContentLoaded', function () {
+  if (document.querySelector('#panel-reports.active')) return;
+  var officeNotice = document.querySelector('[data-office-notice]');
+  if (officeNotice) {
+    switchTab('settings');
+    if (officeNotice.dataset.officeNotice === 'success') {
+      var cleanUrl = new URL(window.location.href);
+      cleanUrl.searchParams.delete('msg');
+      window.history.replaceState(null, '', cleanUrl);
+      window.setTimeout(function () { officeNotice.remove(); }, 4500);
+    }
+    return;
+  }
   var saved = null;
   try {
     saved = sessionStorage.getItem('pd_active_tab');

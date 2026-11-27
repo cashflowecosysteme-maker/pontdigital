@@ -116,13 +116,6 @@ export default {
         });
       }
 
-      if (path === '/rapports-mensuels' && request.method === 'GET') {
-        const report = await renderMonthlyReport(request, env.DB, escapeHtml);
-        return new Response(`<!doctype html><html lang="fr-CA"><head>${renderSharedHead('Rapports mensuels')}</head><body>${report}</body></html>`, {
-          headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' }
-        });
-      }
-
       // Audit avant-vente Google + IA — page indépendante, accès Super Admin seulement.
       if (path === '/audit-visibilite' && request.method === 'GET') {
         return new Response(renderAuditPage(), { headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' } });
@@ -243,8 +236,9 @@ export default {
       `).all();
 
       return new Response(
-        renderDashboardHTML(clients, recentReviews, recentLeads, recentAppointments, url.searchParams.get('msg'), url.origin, magazineIssues, await officeAlertSettings(env)),
-        { headers: { 'Content-Type': 'text/html; charset=utf-8' } }
+        renderDashboardHTML(clients, recentReviews, recentLeads, recentAppointments, url.searchParams.get('msg'), url.origin, magazineIssues, await officeAlertSettings(env),
+          path === '/rapports-mensuels' && request.method === 'GET' ? await renderMonthlyReport(request, env.DB, escapeHtml) : ''),
+        { headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' } }
       );
     } catch (err) {
       return renderErrorHTML('Erreur technique interceptée', `${err.message}\n\n${err.stack || ''}`);
@@ -1861,7 +1855,8 @@ function renderHoursTableRows() {
   `).join('');
 }
 
-function renderDashboardHTML(clients, recentReviews, recentLeads, recentAppointments, msg, origin, magazineIssues, officeAlerts) {
+function renderDashboardHTML(clients, recentReviews, recentLeads, recentAppointments, msg, origin, magazineIssues, officeAlerts, monthlyReport) {
+  const officeNotice = ['office_phone_added', 'office_phone_selected', 'office_phone_invalid'].includes(msg);
   const alerts = {
     pwd_updated: 'Mot de passe interne mis à jour avec succès dans D1.',
     error_pwd: 'Erreur : le mot de passe doit contenir au moins 8 caractères et être identique.',
@@ -2099,7 +2094,7 @@ function renderDashboardHTML(clients, recentReviews, recentLeads, recentAppointm
   </header>
 
   <main class="admin-wrap">
-    ${msg && alerts[msg] ? `<div class="alert-banner">${alerts[msg]}</div>` : ''}
+    ${!officeNotice && msg && alerts[msg] ? `<div class="alert-banner">${alerts[msg]}</div>` : ''}
 
     <div class="kpi-grid">
       <div class="kpi-box"><div class="kpi-label">Entrepreneurs actifs</div><div class="kpi-val">${clients.length}</div></div>
@@ -2108,18 +2103,20 @@ function renderDashboardHTML(clients, recentReviews, recentLeads, recentAppointm
       <div class="kpi-box"><div class="kpi-label">Avis en attente de réponse</div><div class="kpi-val">${pendingReviewsCount}</div></div>
     </div>
 
-    <nav class="tabs-nav" aria-label="Sections Super Admin">
-      <button type="button" class="tab-btn active" data-tab="clients" onclick="switchTab('clients')">🏢 Entrepreneurs &amp; Agendas (${clients.length})</button>
+    <nav class="tabs-nav dashboard-tabs" aria-label="Sections Super Admin">
+      <button type="button" class="tab-btn${monthlyReport ? '' : ' active'}" data-tab="clients" onclick="switchTab('clients')">🏢 Entrepreneurs &amp; Agendas (${clients.length})</button>
       <button type="button" class="tab-btn" data-tab="setting" onclick="switchTab('setting')">📅 Appointment Setting &amp; Leads (${recentAppointments.length + recentLeads.length})</button>
       <button type="button" class="tab-btn" data-tab="gbp" onclick="switchTab('gbp')">✨ Studio Google &amp; NyXia (${pendingReviewsCount})</button>
       <button type="button" class="tab-btn" data-tab="settings" onclick="switchTab('settings')">⚙️ Tests SMS &amp; Sécurité</button>
       <button type="button" class="tab-btn" data-tab="magazine" onclick="switchTab('magazine')">📖 Revue &amp; Archives</button>
       <a class="tab-btn" href="/audit-visibilite" style="text-decoration:none;display:inline-flex;align-items:center;">🔎 Audit Google + IA</a>
-      <a class="tab-btn" href="/rapports-mensuels" style="text-decoration:none;display:inline-flex;align-items:center;">Rapports mensuels</a>
+      <button type="button" class="tab-btn${monthlyReport ? ' active' : ''}" data-tab="reports" onclick="ouvrirRapportsMensuels()">📊 Rapports mensuels</button>
     </nav>
 
+    ${monthlyReport ? `<div id="panel-reports" class="tab-panel active monthly-report-panel">${monthlyReport}</div>` : ''}
+
     <!-- ONGLET 1 : ENTREPRENEURS & AGENDAS -->
-    <div id="panel-clients" class="tab-panel active">
+    <div id="panel-clients" class="tab-panel${monthlyReport ? '' : ' active'}">
       <section class="admin-card">
         <h2 class="display" style="font-size:1.75rem;color:var(--gold);margin-bottom:14px;">+ Ajouter un entrepreneur au réseau Pont Digital</h2>
         <form method="POST" action="/api/clients">
@@ -2406,6 +2403,7 @@ function renderDashboardHTML(clients, recentReviews, recentLeads, recentAppointm
     <div id="panel-settings" class="tab-panel">
       <section class="admin-card">
         <h2 class="display">Destinataire des alertes du bureau</h2>
+        ${officeNotice ? `<p class="office-notice" role="${msg === 'office_phone_invalid' ? 'alert' : 'status'}" data-office-notice="${msg === 'office_phone_invalid' ? 'error' : 'success'}">${alerts[msg]}</p>` : ''}
         <form method="POST" action="/api/office-alerts">
           <input type="hidden" name="action" value="select">
           <div class="field">

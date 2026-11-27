@@ -59,32 +59,44 @@ export async function renderMonthlyReport(request, db, escapeHtml) {
       const change = after - before;
       return `<tr><th scope="row">${label}</th><td>${before}</td><td>${after}</td><td>${change > 0 ? '+' : ''}${change}</td></tr>`;
     }).join('');
-    content = `<h2>${escapeHtml(client.business_name)} · ${escapeHtml(client.city)}</h2>
+    content = `<section class="admin-card report-results"><h2 class="display">${escapeHtml(client.business_name)} · ${escapeHtml(client.city)}</h2>
       <p>${monthLabel.format(monthStart)} · Heures du Québec</p>
-      <table><thead><tr><th scope="col">Activité</th><th scope="col">${monthLabel.format(previousDate)}</th><th scope="col">${monthLabel.format(monthStart)}</th><th scope="col">Écart</th></tr></thead><tbody>${rows}</tbody></table>
+      <div class="report-table"><table><thead><tr><th scope="col">Activité</th><th scope="col">${monthLabel.format(previousDate)}</th><th scope="col">${monthLabel.format(monthStart)}</th><th scope="col">Écart</th></tr></thead><tbody>${rows}</tbody></table></div>
       <p>Les rendez-vous sont comptés selon la date prévue et leur statut actuel. Les réponses Google sans date sont exclues. Une réponse mise à jour est comptée à sa dernière date connue. Les textos sans entreprise associée sont exclus.</p>
-      <h3>Travaux réalisés et évolution de la visibilité</h3>
+      <h3 class="display">Travaux réalisés et évolution de la visibilité</h3>
       <div class="notes" contenteditable="true" role="textbox" aria-label="Travaux réalisés et évolution de la visibilité" aria-multiline="true"></div>
       <p class="controls">Tu peux saisir tes observations et les imprimer avec ce rapport. Les observations saisies ici restent sur cette page jusqu’à sa fermeture ou son rechargement.</p>
-      <button type="button" class="controls" onclick="window.print()">Imprimer / enregistrer en PDF</button>`;
+      <button type="button" class="btn-ghost controls" onclick="window.print()">Imprimer / enregistrer en PDF</button></section>`;
   }
 
   return `<style>
-  .monthly-report{max-width:980px;margin:2rem auto;padding:1.5rem;color:#eee9ff;background:#10152a;border:1px solid #34304c;border-radius:12px}
-  .monthly-report form{display:flex;flex-wrap:wrap;align-items:end;gap:1rem;margin:1.25rem 0}
-  .monthly-report label{display:grid;gap:.25rem}.monthly-report input,.monthly-report select,.monthly-report button{padding:.5rem;color:inherit;background:#1a2038;border:1px solid #76658c;border-radius:5px}
-  .monthly-report table{width:100%;border-collapse:collapse}.monthly-report td,.monthly-report th{padding:.6rem;text-align:left;border-bottom:1px solid #514963}
-  .monthly-report .notes{min-height:5rem;padding:.65rem;border:1px solid #76658c;border-radius:5px;white-space:pre-wrap}
-  @media print{body{background:white!important}.monthly-report{background:white;color:black;border:0;margin:0;padding:0}.monthly-report .controls{display:none}.monthly-report th,.monthly-report td{border-color:#aaa}}
+  .monthly-report-panel .report-filters{display:flex;flex-wrap:wrap;align-items:end;gap:1rem;margin-top:1rem}
+  .monthly-report-panel .report-filters .field{min-width:min(100%,200px)}
+  .monthly-report-panel .report-results > * + *{margin-top:.85rem}
+  .monthly-report-panel h1,.monthly-report-panel h2{color:var(--gold)}
+  .monthly-report-panel .report-table{overflow-x:auto}
+  .monthly-report-panel table{width:100%;border-collapse:collapse}
+  .monthly-report-panel td,.monthly-report-panel th{padding:.75rem;text-align:left;border-bottom:1px solid var(--border)}
+  .monthly-report-panel thead th{color:var(--gold)}
+  .monthly-report-panel .notes{min-height:6rem;padding:.75rem;border:1px solid var(--border);border-radius:var(--radius-sm);white-space:pre-wrap}
+  @media print{
+    body:has(.monthly-report-panel.active){background:white!important;color:black!important}
+    body:has(.monthly-report-panel.active) > :not(.admin-wrap),
+    body:has(.monthly-report-panel.active) .admin-wrap > :not(.monthly-report-panel),
+    .monthly-report-panel .controls{display:none!important}
+    .monthly-report-panel .admin-card{background:white;color:black;border:0;box-shadow:none;padding:0}
+    .monthly-report-panel h2,.monthly-report-panel thead th{color:black}
+    .monthly-report-panel .report-table{overflow:visible}
+  }
   </style>
-  <main class="monthly-report">
-    <a class="controls" href="/">← SuperAdmin</a><h1>Rapports mensuels</h1>
-    <form class="controls" method="GET" action="/rapports-mensuels">
-      <label>Entreprise<select name="client_id" required><option value="">Choisir une entreprise</option>
-      ${clients.map(item => `<option value="${item.id}"${client?.id === item.id ? ' selected' : ''}>${escapeHtml(item.business_name)} · ${escapeHtml(item.city)}</option>`).join('')}</select></label>
-      <label>Mois<input type="month" name="month" value="${month}" required></label>
-      <button type="submit">Afficher le rapport</button>
+  <section class="admin-card controls">
+    <h1 class="display">Rapports mensuels</h1>
+    <form class="report-filters" method="GET" action="/rapports-mensuels">
+      <div class="field"><label for="report-client">Entreprise</label><select id="report-client" name="client_id" required><option value="">Choisir une entreprise</option>
+      ${clients.map(item => `<option value="${item.id}"${client?.id === item.id ? ' selected' : ''}>${escapeHtml(item.business_name)} · ${escapeHtml(item.city)}</option>`).join('')}</select></div>
+      <div class="field"><label for="report-month">Mois</label><input id="report-month" type="month" name="month" value="${month}" required></div>
+      <button type="submit" class="btn-primary">Afficher le rapport</button>
     </form>
-    ${content}
-  </main>`;
+  </section>
+  ${content}`;
 }
