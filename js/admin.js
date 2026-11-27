@@ -19,16 +19,16 @@ function switchTab(tabId) {
   } catch (_) {}
 }
 
-function ouvrirRapportsMensuels() {
-  if (document.getElementById('panel-reports')) {
-    switchTab('reports');
+function ouvrirSectionSuperAdmin(tab, path) {
+  if (document.getElementById('panel-' + tab)) {
+    switchTab(tab);
   } else {
-    window.location.assign('/rapports-mensuels');
+    window.location.assign(path);
   }
 }
 
 document.addEventListener('DOMContentLoaded', function () {
-  if (document.querySelector('#panel-reports.active')) return;
+  if (document.querySelector('#panel-reports.active, #panel-audit.active')) return;
   var officeNotice = document.querySelector('[data-office-notice]');
   if (officeNotice) {
     switchTab('settings');

@@ -116,10 +116,6 @@ export default {
         });
       }
 
-      // Audit avant-vente Google + IA — page indépendante, accès Super Admin seulement.
-      if (path === '/audit-visibilite' && request.method === 'GET') {
-        return new Response(renderAuditPage(), { headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' } });
-      }
       if (path === '/api/audit/nyxia' && request.method === 'POST') {
         return handleNyxiaAudit(request, env);
       }
@@ -237,7 +233,8 @@ export default {
 
       return new Response(
         renderDashboardHTML(clients, recentReviews, recentLeads, recentAppointments, url.searchParams.get('msg'), url.origin, magazineIssues, await officeAlertSettings(env),
-          path === '/rapports-mensuels' && request.method === 'GET' ? await renderMonthlyReport(request, env.DB, escapeHtml) : ''),
+          path === '/rapports-mensuels' && request.method === 'GET' ? await renderMonthlyReport(request, env.DB, escapeHtml) : '',
+          path === '/audit-visibilite' && request.method === 'GET' ? renderAuditPage() : ''),
         { headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' } }
       );
     } catch (err) {
@@ -1855,7 +1852,7 @@ function renderHoursTableRows() {
   `).join('');
 }
 
-function renderDashboardHTML(clients, recentReviews, recentLeads, recentAppointments, msg, origin, magazineIssues, officeAlerts, monthlyReport) {
+function renderDashboardHTML(clients, recentReviews, recentLeads, recentAppointments, msg, origin, magazineIssues, officeAlerts, monthlyReport, visibilityAudit) {
   const officeNotice = ['office_phone_added', 'office_phone_selected', 'office_phone_invalid'].includes(msg);
   const alerts = {
     pwd_updated: 'Mot de passe interne mis à jour avec succès dans D1.',
@@ -2104,19 +2101,21 @@ function renderDashboardHTML(clients, recentReviews, recentLeads, recentAppointm
     </div>
 
     <nav class="tabs-nav dashboard-tabs" aria-label="Sections Super Admin">
-      <button type="button" class="tab-btn${monthlyReport ? '' : ' active'}" data-tab="clients" onclick="switchTab('clients')">🏢 Entrepreneurs &amp; Agendas (${clients.length})</button>
+      <button type="button" class="tab-btn${monthlyReport || visibilityAudit ? '' : ' active'}" data-tab="clients" onclick="switchTab('clients')">🏢 Entrepreneurs &amp; Agendas (${clients.length})</button>
       <button type="button" class="tab-btn" data-tab="setting" onclick="switchTab('setting')">📅 Appointment Setting &amp; Leads (${recentAppointments.length + recentLeads.length})</button>
       <button type="button" class="tab-btn" data-tab="gbp" onclick="switchTab('gbp')">✨ Studio Google &amp; NyXia (${pendingReviewsCount})</button>
       <button type="button" class="tab-btn" data-tab="settings" onclick="switchTab('settings')">⚙️ Tests SMS &amp; Sécurité</button>
       <button type="button" class="tab-btn" data-tab="magazine" onclick="switchTab('magazine')">📖 Revue &amp; Archives</button>
-      <a class="tab-btn" href="/audit-visibilite" style="text-decoration:none;display:inline-flex;align-items:center;">🔎 Audit Google + IA</a>
-      <button type="button" class="tab-btn${monthlyReport ? ' active' : ''}" data-tab="reports" onclick="ouvrirRapportsMensuels()">📊 Rapports mensuels</button>
+      <button type="button" class="tab-btn${visibilityAudit ? ' active' : ''}" data-tab="audit" onclick="ouvrirSectionSuperAdmin('audit', '/audit-visibilite')">🔎 Audit Google + IA</button>
+      <button type="button" class="tab-btn${monthlyReport ? ' active' : ''}" data-tab="reports" onclick="ouvrirSectionSuperAdmin('reports', '/rapports-mensuels')">📊 Rapports mensuels</button>
     </nav>
 
     ${monthlyReport ? `<div id="panel-reports" class="tab-panel active monthly-report-panel">${monthlyReport}</div>` : ''}
 
+    ${visibilityAudit ? `<div id="panel-audit" class="tab-panel active">${visibilityAudit}</div>` : ''}
+
     <!-- ONGLET 1 : ENTREPRENEURS & AGENDAS -->
-    <div id="panel-clients" class="tab-panel${monthlyReport ? '' : ' active'}">
+    <div id="panel-clients" class="tab-panel${monthlyReport || visibilityAudit ? '' : ' active'}">
       <section class="admin-card">
         <h2 class="display" style="font-size:1.75rem;color:var(--gold);margin-bottom:14px;">+ Ajouter un entrepreneur au réseau Pont Digital</h2>
         <form method="POST" action="/api/clients">
