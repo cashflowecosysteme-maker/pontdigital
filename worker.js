@@ -1,3 +1,4 @@
+import {handleChatgptVisibility} from './js/visibilite-chatgpt.js';
 import { renderMonthlyReport } from './rapport-mensuel.js';
 import { renderAuditPage, handleNyxiaAudit } from './audit-visibilite.js';
 import publicSiteWorker from './pontdigital/worker.js';
@@ -116,6 +117,13 @@ export default {
       if (!isAuthenticated) {
         return new Response(renderLoginHTML(), {
           headers: { 'Content-Type': 'text/html; charset=utf-8' }
+        });
+      }
+
+      if (path === '/visibilite-chatgpt' && (request.method === 'GET' || request.method === 'POST')) {
+        return handleChatgptVisibility(request, env.DB, {
+          escape: escapeHtml, renderHead: renderSharedHead, renderBackground: renderBackgroundLayer,
+          webhookConfigured: Boolean(env.CHATGPT_LEAD_WEBHOOK_SECRET)
         });
       }
 
@@ -1731,6 +1739,7 @@ async function handleDeleteClient(request, env) {
       env.DB.prepare('DELETE FROM heyzine_leads WHERE client_id = ?').bind(id),
       env.DB.prepare('DELETE FROM appointments WHERE client_id = ?').bind(id),
       env.DB.prepare('DELETE FROM sms_threads WHERE client_id = ?').bind(id),
+      env.DB.prepare('DELETE FROM admin_settings WHERE key GLOB ?').bind('chatgpt:' + Number(id) + ':*'),
       env.DB.prepare('DELETE FROM clients WHERE id = ?').bind(id)
     ]);
   }
@@ -2055,6 +2064,7 @@ function renderDashboardHTML(clients, recentReviews, recentLeads, recentAppointm
           <div class="actions-stack" style="margin-top:6px;">
             <a href="/oauth/google/connect?client_id=${c.id}" class="btn-sm btn-ghost">${isConnected ? '↻ Réauth GBP' : '🔗 Connecter Google GBP'}</a>
             ${isConnected ? `<a href="/oauth/google/select-location?client_id=${c.id}" class="btn-sm btn-ghost">Changer fiche</a>` : ''}
+            <a href="/visibilite-chatgpt?client_id=${c.id}" class="btn-sm btn-ghost">Visibilité ChatGPT</a>
             <a href="https://chatgpt.com/business-hub/" target="_blank" rel="noopener noreferrer" class="btn-sm btn-ghost">Ouvrir ChatGPT Business Hub</a>
             <button type="button" class="btn-sm btn-ghost" onclick="copyWebhook('${escapeHtml(chatgptWebhookUrl)}', this)">Copier le webhook ChatGPT</button>
             ${validChatgptProfileUrl(c.chatgpt_profile_url) ? `<a href="${escapeHtml(c.chatgpt_profile_url)}" target="_blank" rel="noopener noreferrer" class="btn-sm btn-ghost">Ouvrir la fiche ChatGPT</a>` : ''}

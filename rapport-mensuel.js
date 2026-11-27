@@ -1,3 +1,5 @@
+import {readChatgptInsights, renderChatgptInsights} from './js/visibilite-chatgpt.js';
+
 // Rapport d’activité fondé sur les enregistrements de Pont Digital.
 const monthInQuebec = new Intl.DateTimeFormat('fr-CA', {
   timeZone: 'America/Toronto', year: 'numeric', month: '2-digit'
@@ -61,10 +63,13 @@ export async function renderMonthlyReport(request, db, escapeHtml) {
       const change = after - before;
       return `<tr><th scope="row">${label}</th><td>${before}</td><td>${after}</td><td>${change > 0 ? '+' : ''}${change}</td></tr>`;
     }).join('');
+    const insights = await readChatgptInsights(db, client.id, month);
     content = `<section class="admin-card report-results"><h2 class="display">${escapeHtml(client.business_name)} · ${escapeHtml(client.city)}</h2>
       <p>${monthLabel.format(monthStart)} · Heures du Québec</p>
       <div class="report-table"><table><thead><tr><th scope="col">Activité</th><th scope="col">${monthLabel.format(previousDate)}</th><th scope="col">${monthLabel.format(monthStart)}</th><th scope="col">Écart</th></tr></thead><tbody>${rows}</tbody></table></div>
       <p>Les rendez-vous sont comptés selon la date prévue et leur statut actuel. Les réponses Google sans date sont exclues. Une réponse mise à jour est comptée à sa dernière date connue. Les textos sans entreprise associée sont exclus.</p>
+      <h3 class="display">Statistiques ChatGPT Business Hub</h3>
+      ${renderChatgptInsights(insights, escapeHtml)}
       <h3 class="display">Travaux réalisés et évolution de la visibilité</h3>
       <div class="notes" contenteditable="true" role="textbox" aria-label="Travaux réalisés et évolution de la visibilité" aria-multiline="true"></div>
       <p class="controls">Tu peux saisir tes observations et les imprimer avec ce rapport. Les observations saisies ici restent sur cette page jusqu’à sa fermeture ou son rechargement.</p>
