@@ -74,6 +74,8 @@ function openEditModal(c) {
   var reviewUrlEl = document.getElementById('edit-google_review_url');
   if (reviewUrlEl) reviewUrlEl.value = c.google_review_url || '';
   document.getElementById('edit-booking_calendar_url').value = c.booking_calendar_url || '';
+  var chatgptProfile = document.getElementById('edit-chatgpt_profile_url');
+  if (chatgptProfile) chatgptProfile.value = c.chatgpt_profile_url || '';
   document.getElementById('edit-heyzine_url').value = c.heyzine_url || '';
   document.getElementById('edit-interview_video_url').value = c.interview_video_url || '';
   document.getElementById('edit-cover_photo_url').value = c.cover_photo_url || '';

@@ -283,6 +283,7 @@ async function ensureDatabaseReady(db) {
         assigned_setter_phone TEXT,
         google_review_url TEXT,
         booking_calendar_url TEXT,
+        chatgpt_profile_url TEXT,
         booking_notes TEXT,
         heyzine_url TEXT,
         interview_video_url TEXT,
@@ -383,6 +384,7 @@ async function ensureDatabaseReady(db) {
     'ALTER TABLE clients ADD COLUMN assigned_setter_phone TEXT',
     'ALTER TABLE clients ADD COLUMN google_review_url TEXT',
     'ALTER TABLE clients ADD COLUMN booking_calendar_url TEXT',
+    'ALTER TABLE clients ADD COLUMN chatgpt_profile_url TEXT',
     'ALTER TABLE clients ADD COLUMN booking_notes TEXT',
     'ALTER TABLE clients ADD COLUMN services TEXT',
     'ALTER TABLE clients ADD COLUMN service_areas TEXT',
@@ -1557,11 +1559,24 @@ function buildSocialLinksJson(formData) {
   return JSON.stringify(links);
 }
 
+function validChatgptProfileUrl(value) {
+  try {
+    const url = new URL(value);
+    return url.protocol === 'https:' && url.hostname === 'chatgpt.com' && !url.username && !url.password;
+  } catch {
+    return false;
+  }
+}
+
 async function handleAddClient(request, env) {
   const formData = await request.formData();
   const businessName = (formData.get('business_name') || '').trim();
   const city = (formData.get('city') || '').trim();
   const category = (formData.get('category') || '').trim();
+  const chatgptProfileUrl = (formData.get('chatgpt_profile_url') || '').trim();
+  if (chatgptProfileUrl && !validChatgptProfileUrl(chatgptProfileUrl)) {
+    return Response.redirect(new URL('/?msg=invalid_chatgpt_profile_url', request.url), 302);
+  }
   if (!businessName) return Response.redirect(new URL('/?msg=error_fields', request.url), 302);
   const draft = formData.get('save_mode') === 'draft' || !city || !category;
 
@@ -1573,8 +1588,8 @@ async function handleAddClient(request, env) {
       business_name, city, category, services, service_areas, public_address, show_public_address,
       advertorial_text, social_links, phone, client_email,
       google_review_url, booking_calendar_url, booking_notes, heyzine_url, interview_video_url,
-      cover_photo_url, gallery_urls, status
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      cover_photo_url, gallery_urls, status, chatgpt_profile_url
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).bind(
     businessName, city, category,
     (formData.get('services') || '').trim(),
@@ -1591,7 +1606,7 @@ async function handleAddClient(request, env) {
     (formData.get('heyzine_url') || '').trim(),
     (formData.get('interview_video_url') || '').trim(),
     (formData.get('cover_photo_url') || '').trim(),
-    galleryJson, draft ? 'draft' : 'active'
+    galleryJson, draft ? 'draft' : 'active', chatgptProfileUrl
   ).run();
 
   return Response.redirect(new URL(draft ? '/?msg=client_draft_saved' : '/?msg=client_added', request.url), 302);
@@ -1603,6 +1618,10 @@ async function handleUpdateClientFull(request, env) {
   const businessName = (formData.get('business_name') || '').trim();
   const city = (formData.get('city') || '').trim();
   const category = (formData.get('category') || '').trim();
+  const chatgptProfileUrl = (formData.get('chatgpt_profile_url') || '').trim();
+  if (chatgptProfileUrl && !validChatgptProfileUrl(chatgptProfileUrl)) {
+    return Response.redirect(new URL('/?msg=invalid_chatgpt_profile_url', request.url), 302);
+  }
   if (!clientId || !businessName) return Response.redirect(new URL('/?msg=error_fields', request.url), 302);
 
   const galleryJson = JSON.stringify((formData.get('gallery_urls') || '').split(',').map(s => s.trim()).filter(Boolean).slice(0, 5));
@@ -1613,7 +1632,7 @@ async function handleUpdateClientFull(request, env) {
       public_address = ?, show_public_address = ?, advertorial_text = ?, social_links = ?, phone = ?,
       client_email = ?, google_review_url = ?,
       booking_calendar_url = ?, booking_notes = ?, heyzine_url = ?, interview_video_url = ?,
-      cover_photo_url = ?, gallery_urls = ?
+      cover_photo_url = ?, gallery_urls = ?, chatgpt_profile_url = COALESCE(?, chatgpt_profile_url)
     WHERE id = ? AND (status = 'draft' OR ? = 1)
   `).bind(
     businessName, city, category,
@@ -1631,7 +1650,7 @@ async function handleUpdateClientFull(request, env) {
     (formData.get('heyzine_url') || '').trim(),
     (formData.get('interview_video_url') || '').trim(),
     (formData.get('cover_photo_url') || '').trim(),
-    galleryJson, clientId, city && category ? 1 : 0
+    galleryJson, formData.has('chatgpt_profile_url') ? chatgptProfileUrl : null, clientId, city && category ? 1 : 0
   ).run();
 
   if (!update.meta?.changes) return Response.redirect(new URL('/?msg=client_public_fields_missing', request.url), 302);
@@ -1869,10 +1888,11 @@ function renderDashboardHTML(clients, recentReviews, recentLeads, recentAppointm
   const alerts = {
     pwd_updated: 'Mot de passe interne mis à jour avec succès dans D1.',
     error_pwd: 'Erreur : le mot de passe doit contenir au moins 8 caractères et être identique.',
+    invalid_chatgpt_profile_url: 'Le lien de la fiche ChatGPT doit être une URL HTTPS sur chatgpt.com.',
     client_draft_saved: 'Brouillon enregistré dans le SuperAdmin.',
     client_public_fields_missing: 'Pour une fiche publiée, indique le nom, la ville et la catégorie.',
     client_added: 'Entrepreneur ajouté à la base D1 Pont Digital.',
-    media_updated: 'Fiche entrepreneur, Agenda Workspace & Médias mis à jour !',
+    media_updated: 'Fiche entrepreneur et lien de réservation mis à jour.',
     client_deleted: 'Fiche entrepreneur supprimée.',
     client_status_updated: 'Visibilité de la fiche commerciale (Active / Désactivée) mise à jour !',
     error_fields: 'Veuillez remplir les champs obligatoires ou cocher au moins une section à mettre à jour.',
@@ -1949,6 +1969,7 @@ function renderDashboardHTML(clients, recentReviews, recentLeads, recentAppointm
       client_email: c.client_email || '',
       google_review_url: c.google_review_url || '',
       booking_calendar_url: c.booking_calendar_url || '',
+      chatgpt_profile_url: c.chatgpt_profile_url || '',
       heyzine_url: c.heyzine_url || '',
       interview_video_url: c.interview_video_url || '',
       cover_photo_url: c.cover_photo_url || '',
@@ -1976,8 +1997,8 @@ function renderDashboardHTML(clients, recentReviews, recentLeads, recentAppointm
         </td>
         <td>
           ${hasCal
-            ? `<span class="pill pill-ok">● Agenda Google prêt</span>
-               <div style="margin-top:6px;"><a href="${escapeHtml(c.booking_calendar_url)}" target="_blank" rel="noopener" class="btn-sm btn-gold">📅 Ouvrir son agenda setter</a></div>`
+            ? `<span class="pill pill-ok">● Lien de réservation ajouté</span>
+               <div style="margin-top:6px;"><a href="${escapeHtml(c.booking_calendar_url)}" target="_blank" rel="noopener" class="btn-sm btn-gold">📅 Ouvrir la page de réservation</a></div>`
             : `<span class="pill pill-warn">○ Lien agenda à ajouter</span>`}
           ${c.booking_notes ? `<div style="font-size:.76rem;color:var(--text-muted);margin-top:5px;max-width:240px;">${escapeHtml(c.booking_notes)}</div>` : ''}
           <div style="margin-top:6px;">
@@ -1991,6 +2012,8 @@ function renderDashboardHTML(clients, recentReviews, recentLeads, recentAppointm
           <div class="actions-stack" style="margin-top:6px;">
             <a href="/oauth/google/connect?client_id=${c.id}" class="btn-sm btn-ghost">${isConnected ? '↻ Réauth GBP' : '🔗 Connecter Google GBP'}</a>
             ${isConnected ? `<a href="/oauth/google/select-location?client_id=${c.id}" class="btn-sm btn-ghost">Changer fiche</a>` : ''}
+            <a href="https://chatgpt.com/business-hub/" target="_blank" rel="noopener noreferrer" class="btn-sm btn-ghost">Ouvrir ChatGPT Business Hub</a>
+            ${validChatgptProfileUrl(c.chatgpt_profile_url) ? `<a href="${escapeHtml(c.chatgpt_profile_url)}" target="_blank" rel="noopener noreferrer" class="btn-sm btn-ghost">Ouvrir la fiche ChatGPT</a>` : ''}
           </div>
         </td>
         <td>
@@ -2143,7 +2166,8 @@ function renderDashboardHTML(clients, recentReviews, recentLeads, recentAppointm
             <div class="field"><label>Téléphone public</label><input name="phone" placeholder="514-000-0000"></div>
             <div class="field"><label>Courriel vendeur (invitations RDV)</label><input type="email" name="client_email" placeholder="contact@entreprise.ca"></div>
             <div class="field"><label>Lien direct Avis Google (SMS post-RDV)</label><input type="url" name="google_review_url" placeholder="https://g.page/r/.../review"></div>
-            <div class="field"><label>Lien Prise de RDV Google Workspace (Setter)</label><input type="url" name="booking_calendar_url" placeholder="https://calendar.app.google/..."></div>
+            <div class="field"><label>URL publique de prise de rendez-vous (Systeme.io)</label><input type="url" name="booking_calendar_url" placeholder="https://…/reservation"></div>
+            <div class="field"><label>Lien direct de la fiche ChatGPT</label><input type="url" name="chatgpt_profile_url" placeholder="https://chatgpt.com/…"></div>
             <div class="field"><label>URL Page Heyzine (#page/X)</label><input type="url" name="heyzine_url" placeholder="https://heyzine.com/flip-book/...#page/1"></div>
             <div class="field"><label>URL Vidéo entrevue (YouTube/Vimeo/MP4)</label><input type="url" name="interview_video_url" placeholder="https://..."></div>
             <div class="field"><label>URL Photo couverture principale</label><input type="url" name="cover_photo_url" placeholder="https://..."></div>
@@ -2178,7 +2202,7 @@ function renderDashboardHTML(clients, recentReviews, recentLeads, recentAppointm
               <tr>
                 <th>Entreprise &amp; Médias</th>
                 <th>Appointment Setting &amp; Webhook Heyzine</th>
-                <th>Google Business Profile</th>
+                <th>Fiches Google et ChatGPT</th>
                 <th>Actions</th>
               </tr>
             </thead>
@@ -2484,7 +2508,8 @@ function renderDashboardHTML(clients, recentReviews, recentLeads, recentAppointm
           <div class="field"><label>Téléphone</label><input name="phone" id="edit-phone"></div>
           <div class="field"><label>Courriel vendeur (invitations RDV)</label><input type="email" name="client_email" id="edit-client_email"></div>
           <div class="field"><label>Lien direct Avis Google (SMS post-RDV)</label><input type="url" name="google_review_url" id="edit-google_review_url"></div>
-          <div class="field"><label>Lien Agenda Google Workspace</label><input type="url" name="booking_calendar_url" id="edit-booking_calendar_url"></div>
+          <div class="field"><label>URL publique de prise de rendez-vous (Systeme.io)</label><input type="url" name="booking_calendar_url" id="edit-booking_calendar_url"></div>
+          <div class="field"><label>Lien direct de la fiche ChatGPT</label><input type="url" name="chatgpt_profile_url" id="edit-chatgpt_profile_url" placeholder="https://chatgpt.com/…"></div>
           <div class="field"><label>URL Page Heyzine (#page/X)</label><input type="url" name="heyzine_url" id="edit-heyzine_url"></div>
           <div class="field"><label>URL Vidéo entrevue</label><input type="url" name="interview_video_url" id="edit-interview_video_url"></div>
           <div class="field"><label>URL Photo couverture principale</label><input type="url" name="cover_photo_url" id="edit-cover_photo_url"></div>
