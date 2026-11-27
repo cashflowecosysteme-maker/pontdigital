@@ -2179,6 +2179,7 @@ function renderDashboardHTML(clients, recentReviews, recentLeads, recentAppointm
     </a>
     <div class="header-right">
       <button type="button" class="btn-ghost" onclick="switchTab('settings')">📱 Tester SMS &amp; Sécurité</button>
+      <a href="https://docs.google.com/spreadsheets/d/1iYtV9XPQGVf8lDaWnG-sveFT867ezsVPTVuPsb-XlRQ/edit?usp=sharing" class="btn-ghost" target="_blank" rel="noopener noreferrer">Prospection</a>
       <a href="/logout" class="btn-primary">Déconnexion</a>
     </div>
   </header>
